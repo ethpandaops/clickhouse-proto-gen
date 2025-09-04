@@ -1,0 +1,23 @@
+# Example configuration file for clickhouse-proto-gen
+
+# ClickHouse connection DSN
+dsn: clickhouse://user:password@localhost:9000/mydb
+
+# Tables to generate proto files for (required)
+# Can specify as table name or database.table
+tables:
+  - users
+  - orders
+  - products
+
+# Output directory for generated proto files
+output_dir: ./proto
+
+# Protocol Buffer package name
+package: myapp.clickhouse.v1
+
+# Go package import path
+go_package: github.com/myorg/myapp/gen/clickhousev1
+
+# Include table and column comments in proto files
+include_comments: true
