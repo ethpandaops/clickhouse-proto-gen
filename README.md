@@ -13,6 +13,14 @@ A standalone CLI tool that connects to a ClickHouse cluster, introspects one or 
 
 ## Installation
 
+### Using Docker
+
+```bash
+docker pull ethpandaops/clickhouse-proto-gen:latest
+```
+
+### Using Go
+
 ```bash
 go install github.com/ethpandaops/clickhouse-proto-gen/cmd/clickhouse-proto-gen@latest
 ```
@@ -26,6 +34,45 @@ go build -o clickhouse-proto-gen ./cmd/clickhouse-proto-gen
 ```
 
 ## Quick Start
+
+### Using Docker
+
+Mount the current directory as a volume to generate proto files directly into your project:
+
+```bash
+# Basic usage - generate proto files in ./proto directory
+docker run --rm -v "$(pwd):/workspace" \
+  ethpandaops/clickhouse-proto-gen \
+  --dsn "clickhouse://user:pass@host.docker.internal:9000/mydb" \
+  --tables users,orders \
+  --out /workspace/proto \
+  --package myapp.v1 \
+  --go-package github.com/myorg/myapp/gen/v1
+
+# Generate for multiple tables with comments
+docker run --rm -v "$(pwd):/workspace" \
+  ethpandaops/clickhouse-proto-gen \
+  --dsn "clickhouse://user:pass@host.docker.internal:9000/mydb" \
+  --tables users,products,orders,inventory \
+  --out /workspace/proto \
+  --package ecommerce.v1 \
+  --go-package github.com/mycompany/ecommerce/pb/v1 \
+  --include-comments
+
+# Connect to ClickHouse on custom network
+docker run --rm -v "$(pwd):/workspace" --network=my_network \
+  ethpandaops/clickhouse-proto-gen \
+  --dsn "clickhouse://user:pass@clickhouse:9000/production" \
+  --tables events,metrics \
+  --out /workspace/generated/proto \
+  --verbose
+```
+
+**Note for Docker users:**
+- Use `host.docker.internal` instead of `localhost` to connect to ClickHouse running on your host machine
+- Mount your desired output directory to `/workspace` or another path inside the container
+- All output paths should be relative to the mounted volume path
+- Add `--network` flag if ClickHouse is running in a Docker network
 
 ### Basic usage with CLI flags
 
