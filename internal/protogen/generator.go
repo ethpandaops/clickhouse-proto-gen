@@ -192,8 +192,7 @@ func (g *Generator) writeServiceDefinitions(sb *strings.Builder, table *clickhou
 	fieldNumber = g.writeRemainingColumnFilters(sb, table, processedColumns, fieldNumber)
 
 	// Add pagination fields (AIP-132 standard)
-	fieldNumber++
-	fmt.Fprintf(sb, "  // The maximum number of %s to return.\n", table.Name)
+	fmt.Fprintf(sb, "\n  // The maximum number of %s to return.\n", table.Name)
 	fmt.Fprintf(sb, "  // If unspecified, at most 100 items will be returned.\n")
 	fmt.Fprintf(sb, "  // The maximum value is 1000; values above 1000 will be coerced to 1000.\n")
 	fmt.Fprintf(sb, "  int32 page_size = %d;\n", fieldNumber)
@@ -334,14 +333,12 @@ func (g *Generator) writeRemainingColumnFilters(sb *strings.Builder, table *clic
 			fmt.Fprintf(sb, "  // Filter by %s (optional)\n", column.Name)
 			fmt.Fprintf(sb, "  %s %s = %d;\n", filterType, SanitizeName(column.Name), fieldNumber)
 			fieldNumber++
-			fmt.Fprintf(sb, "\n")
 		} else {
 			// For types without filter support, use wrapper type for optional field
 			wrapperType := g.typeMapper.getWrapperTypeForColumn(&column)
 			fmt.Fprintf(sb, "  // Filter by %s (optional)\n", column.Name)
 			fmt.Fprintf(sb, "  %s %s = %d;\n", wrapperType, SanitizeName(column.Name), fieldNumber)
 			fieldNumber++
-			fmt.Fprintf(sb, "\n")
 		}
 	}
 
