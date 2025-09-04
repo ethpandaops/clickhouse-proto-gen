@@ -7,7 +7,7 @@ before:
 builds:
   - env:
       - CGO_ENABLED=0
-    binary: clickhouse-proto-gen-{{.Version}}
+    binary: clickhouse-proto-gen
     goos:
       - linux
       - windows
@@ -25,7 +25,7 @@ builds:
       - goos: windows
         goarch: arm64
     ldflags:
-      - -s -w -X github.com/ethpandaops/clickhouse-proto-gen/pkg/proto/clickhouse-proto-gen.Release={{.Tag}} -X github.com/ethpandaops/clickhouse-proto-gen/cmd/clickhouse-proto-gen.Commit={{.ShortCommit}}
+      - -s -w -X github.com/ethpandaops/clickhouse-proto-gen/cmd/clickhouse-proto-gen.Release={{.Tag}} -X github.com/ethpandaops/clickhouse-proto-gen/cmd/clickhouse-proto-gen.Commit={{.ShortCommit}}
     mod_timestamp: "{{ .CommitTimestamp }}"
 checksum:
   name_template: 'checksums.txt'
