@@ -42,4 +42,12 @@ config.yaml
 
 # Test data
 testdata/
+
+# Coverage outputs
 coverage.html
+coverage.txt
+profile.out
+profile.grind
+
+# goreleaser
+.goreleaser.yaml.new
