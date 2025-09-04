@@ -323,6 +323,9 @@ func (g *Generator) writeStringFilterCases(sb *strings.Builder, columnName, inde
 	fmt.Fprintf(sb, "%scase *StringFilter_Like:\n", indent)
 	fmt.Fprintf(sb, "%s\tqb.AddLikeCondition(\"%s\", filter.Like)\n", indent, columnName)
 
+	fmt.Fprintf(sb, "%scase *StringFilter_NotLike:\n", indent)
+	fmt.Fprintf(sb, "%s\tqb.AddNotLikeCondition(\"%s\", filter.NotLike)\n", indent, columnName)
+
 	fmt.Fprintf(sb, "%scase *StringFilter_In:\n", indent)
 	fmt.Fprintf(sb, "%s\tif len(filter.In.Values) > 0 {\n", indent)
 	fmt.Fprintf(sb, "%s\t\tqb.AddInCondition(\"%s\", StringSliceToInterface(filter.In.Values))\n", indent, columnName)
@@ -354,6 +357,9 @@ func (g *Generator) writeNullableStringFilterCases(sb *strings.Builder, columnNa
 
 	fmt.Fprintf(sb, "%scase *NullableStringFilter_Like:\n", indent)
 	fmt.Fprintf(sb, "%s\tqb.AddLikeCondition(\"%s\", filter.Like)\n", indent, columnName)
+
+	fmt.Fprintf(sb, "%scase *NullableStringFilter_NotLike:\n", indent)
+	fmt.Fprintf(sb, "%s\tqb.AddNotLikeCondition(\"%s\", filter.NotLike)\n", indent, columnName)
 
 	fmt.Fprintf(sb, "%scase *NullableStringFilter_In:\n", indent)
 	fmt.Fprintf(sb, "%s\tif len(filter.In.Values) > 0 {\n", indent)
@@ -411,12 +417,42 @@ func (g *Generator) writeNumericFilterCases(sb *strings.Builder, columnName, ind
 
 // writeNullableNumericFilterCases generates switch cases for nullable numeric filters
 func (g *Generator) writeNullableNumericFilterCases(sb *strings.Builder, columnName, indent, typeName string) {
-	// All the same cases as numeric filter
-	g.writeNumericFilterCases(sb, columnName, indent, typeName)
-
-	// Plus null cases
 	// typeName is already correctly cased (e.g., "UInt32", "Int64")
 	typePrefix := "Nullable" + typeName
+
+	// Generate all the numeric filter cases with Nullable prefix
+	fmt.Fprintf(sb, "%scase *%sFilter_Eq:\n", indent, typePrefix)
+	fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \"=\", filter.Eq)\n", indent, columnName)
+
+	fmt.Fprintf(sb, "%scase *%sFilter_Ne:\n", indent, typePrefix)
+	fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \"!=\", filter.Ne)\n", indent, columnName)
+
+	fmt.Fprintf(sb, "%scase *%sFilter_Lt:\n", indent, typePrefix)
+	fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \"<\", filter.Lt)\n", indent, columnName)
+
+	fmt.Fprintf(sb, "%scase *%sFilter_Lte:\n", indent, typePrefix)
+	fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \"<=\", filter.Lte)\n", indent, columnName)
+
+	fmt.Fprintf(sb, "%scase *%sFilter_Gt:\n", indent, typePrefix)
+	fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \">\", filter.Gt)\n", indent, columnName)
+
+	fmt.Fprintf(sb, "%scase *%sFilter_Gte:\n", indent, typePrefix)
+	fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \">=\", filter.Gte)\n", indent, columnName)
+
+	fmt.Fprintf(sb, "%scase *%sFilter_Between:\n", indent, typePrefix)
+	fmt.Fprintf(sb, "%s\tqb.AddBetweenCondition(\"%s\", filter.Between.Min, filter.Between.Max)\n", indent, columnName)
+
+	fmt.Fprintf(sb, "%scase *%sFilter_In:\n", indent, typePrefix)
+	fmt.Fprintf(sb, "%s\tif len(filter.In.Values) > 0 {\n", indent)
+	fmt.Fprintf(sb, "%s\t\tqb.AddInCondition(\"%s\", %sSliceToInterface(filter.In.Values))\n", indent, columnName, typeName)
+	fmt.Fprintf(sb, "%s\t}\n", indent)
+
+	fmt.Fprintf(sb, "%scase *%sFilter_NotIn:\n", indent, typePrefix)
+	fmt.Fprintf(sb, "%s\tif len(filter.NotIn.Values) > 0 {\n", indent)
+	fmt.Fprintf(sb, "%s\t\tqb.AddNotInCondition(\"%s\", %sSliceToInterface(filter.NotIn.Values))\n", indent, columnName, typeName)
+	fmt.Fprintf(sb, "%s\t}\n", indent)
+
+	// Plus null cases
 	fmt.Fprintf(sb, "%scase *%sFilter_IsNull:\n", indent, typePrefix)
 	fmt.Fprintf(sb, "%s\tqb.AddIsNullCondition(\"%s\")\n", indent, columnName)
 

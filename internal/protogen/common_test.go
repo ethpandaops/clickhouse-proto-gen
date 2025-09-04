@@ -512,7 +512,9 @@ func TestGenerator_WriteRangeTypes(t *testing.T) {
 	assert.Contains(t, result, "starts_with = 4")
 	assert.Contains(t, result, "ends_with = 5")
 	assert.Contains(t, result, "like = 6")
-	assert.Contains(t, result, "regex = 8")
+	assert.Contains(t, result, "not_like = 7")
+	assert.Contains(t, result, "in = 8")
+	assert.Contains(t, result, "not_in = 9")
 
 	// Check range types
 	assert.Contains(t, result, "message UInt32Range")
