@@ -18,7 +18,6 @@ vendor/
 go.work
 
 # Build output
-clickhouse-proto-gen
 /clickhouse-proto-gen
 dist/
 
@@ -43,3 +42,4 @@ config.yaml
 
 # Test data
 testdata/
+coverage.html

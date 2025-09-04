@@ -360,6 +360,9 @@ func (g *Generator) writeField(sb *strings.Builder, field *ProtoField) {
 }
 
 func (g *Generator) writeComment(sb *strings.Builder, comment, indent string) {
+	if !g.config.IncludeComments {
+		return
+	}
 	lines := strings.Split(comment, "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)

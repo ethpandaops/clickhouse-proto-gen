@@ -245,20 +245,22 @@ func (tm *TypeMapper) getWrapperTypeForColumn(column *clickhouse.Column) string 
 
 // GetFieldNumber generates a deterministic field number for a column
 func GetFieldNumber(position uint64) int32 {
-	// Both Protobuf field numbers and ClickHouse positions start at 1
-	// So we can use the position directly
+	// Add offset of 10 to avoid low field numbers
+	// Field numbers 1-10 are often reserved for future use
+	const offset = 10
 	const maxInt32 = 2147483647
 
-	if position > maxInt32 {
+	fieldNum := position + offset
+	if fieldNum > maxInt32 {
 		return maxInt32
 	}
 
 	// Ensure we never return 0 (invalid in protobuf)
-	if position == 0 {
+	if fieldNum == 0 {
 		return 1
 	}
 
-	return int32(position)
+	return int32(fieldNum)
 }
 
 // SanitizeName converts a name to be valid for protobuf
