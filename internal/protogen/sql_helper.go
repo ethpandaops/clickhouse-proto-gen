@@ -243,32 +243,21 @@ func (g *Generator) writeGetSQLBuilderFunction(sb *strings.Builder, table *click
 
 // writeAllFilterConditions writes filter conditions for all columns
 func (g *Generator) writeAllFilterConditions(sb *strings.Builder, table *clickhouse.Table, columnMap map[string]*clickhouse.Column) {
-	// Check if table has a primary key
-	if len(table.SortingKey) > 0 {
-		// Process primary key filter
-		primaryKey := table.SortingKey[0]
-		primaryKeyField := SanitizeName(primaryKey)
-		fmt.Fprintf(sb, "\t// Add primary key filter\n")
-		g.writeFilterCondition(sb, primaryKey, primaryKeyField, columnMap[primaryKey], true)
+	// Process primary key filter
+	primaryKey := table.SortingKey[0]
+	primaryKeyField := SanitizeName(primaryKey)
+	fmt.Fprintf(sb, "\t// Add primary key filter\n")
+	g.writeFilterCondition(sb, primaryKey, primaryKeyField, columnMap[primaryKey], true)
 
-		// Process all other columns
-		for _, col := range table.Columns {
-			// Skip primary key as it's already handled
-			if col.Name == primaryKey {
-				continue
-			}
-			fieldName := SanitizeName(col.Name)
-			fmt.Fprintf(sb, "\n\t// Add filter for column: %s\n", col.Name)
-			g.writeFilterCondition(sb, col.Name, fieldName, &col, false)
+	// Process all other columns
+	for _, col := range table.Columns {
+		// Skip primary key as it's already handled
+		if col.Name == primaryKey {
+			continue
 		}
-	} else {
-		// No primary key, process all columns as optional filters
-		for _, col := range table.Columns {
-			fieldName := SanitizeName(col.Name)
-			fmt.Fprintf(sb, "\t// Add filter for column: %s\n", col.Name)
-			g.writeFilterCondition(sb, col.Name, fieldName, &col, false)
-			fmt.Fprintf(sb, "\n")
-		}
+		fieldName := SanitizeName(col.Name)
+		fmt.Fprintf(sb, "\n\t// Add filter for column: %s\n", col.Name)
+		g.writeFilterCondition(sb, col.Name, fieldName, &col, false)
 	}
 	fmt.Fprintf(sb, "\n")
 }
