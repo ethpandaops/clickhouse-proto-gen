@@ -549,3 +549,69 @@ func TestGenerator_WriteCommonTypes(t *testing.T) {
 	// Check comments
 	assert.Contains(t, result, "// SortOrder defines the order of results")
 }
+
+func TestGeneratedSQLCommonContainsVariableSubstitution(t *testing.T) {
+	// Create a temp directory for test output
+	tempDir, err := os.MkdirTemp("", "sql_common_test_*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	cfg := &config.Config{
+		OutputDir: tempDir,
+		Package:   "test.v1",
+		GoPackage: "github.com/test/proto",
+	}
+	log := logrus.New()
+	log.SetLevel(logrus.WarnLevel)
+
+	gen := NewGenerator(cfg, log)
+	err = gen.GenerateSQLCommon()
+	require.NoError(t, err)
+
+	// Read the generated common.go file
+	commonGoPath := filepath.Join(tempDir, "common.go")
+	require.FileExists(t, commonGoPath)
+
+	content, err := os.ReadFile(commonGoPath)
+	require.NoError(t, err)
+
+	contentStr := string(content)
+
+	// Verify that variable substitution types and functionality are present
+	expectedContent := []string{
+		"type VariableSubstitutionStyle int",
+		"VariableSubstitutionStandard VariableSubstitutionStyle = iota",
+		"VariableSubstitutionPositional",
+		"type QueryBuilderOptions struct",
+		"VariableSubstitution VariableSubstitutionStyle",
+		"type QueryBuilderOption func(*QueryBuilderOptions)",
+		"func WithVariableSubstitution(style VariableSubstitutionStyle) QueryBuilderOption",
+		"*QueryBuilderOptions", // options field (flexible whitespace)
+		"func NewQueryBuilder(options ...QueryBuilderOption) *QueryBuilder",
+		"VariableSubstitution: VariableSubstitutionStandard", // Default to ? style
+		"func (qb *QueryBuilder) formatVariable(index int) string",
+		"case VariableSubstitutionPositional:",
+		"fmt.Sprintf(\"$%d\", index)",
+		"case VariableSubstitutionStandard:",
+		"return \"?\"",
+	}
+
+	for _, expected := range expectedContent {
+		assert.Contains(t, contentStr, expected, "Expected content not found: %s", expected)
+	}
+
+	// Verify that the generated functions use formatVariable instead of hardcoded $%d
+	updatedFunctionCalls := []string{
+		"placeholder := qb.formatVariable(qb.argCounter)",
+		"placeholderMin := qb.formatVariable(qb.argCounter)",
+		"placeholderMax := qb.formatVariable(qb.argCounter)",
+		"placeholders[i] = qb.formatVariable(qb.argCounter)",
+	}
+
+	for _, expected := range updatedFunctionCalls {
+		assert.Contains(t, contentStr, expected, "Expected formatVariable usage not found: %s", expected)
+	}
+
+	// Verify that functions use configurable formatVariable instead of hardcoded placeholders
+	assert.NotContains(t, contentStr, "fmt.Sprintf(\"$%d\", qb.argCounter)", "Functions should use formatVariable() for configurable placeholders")
+}
