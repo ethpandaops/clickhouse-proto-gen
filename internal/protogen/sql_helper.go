@@ -87,9 +87,9 @@ func (g *Generator) writeSQLBuilderFunction(sb *strings.Builder, table *clickhou
 	messageName := getProtocMessageName(table.Name)
 	requestType := fmt.Sprintf("List%sRequest", messageName)
 
-	// Write function signature - now returns SQLQuery
+	// Write function signature - now returns SQLQuery and accepts query options
 	fmt.Fprintf(sb, "// BuildList%sQuery constructs a parameterized SQL query from a List%sRequest\n", messageName, messageName)
-	fmt.Fprintf(sb, "func BuildList%sQuery(req *%s) (SQLQuery, error) {\n", messageName, requestType)
+	fmt.Fprintf(sb, "func BuildList%sQuery(req *%s, options ...QueryOption) (SQLQuery, error) {\n", messageName, requestType)
 
 	// Write primary key validation
 	primaryKey := table.SortingKey[0]
@@ -162,7 +162,7 @@ func (g *Generator) writeSQLBuilderFunction(sb *strings.Builder, table *clickhou
 	fmt.Fprintf(sb, "\n")
 	fmt.Fprintf(sb, "\t}\n\n")
 
-	fmt.Fprintf(sb, "\treturn BuildParameterizedQueryWithOrder(\"%s\", \"%s\", qb, orderByClause, limit, offset), nil\n", table.Database, table.Name)
+	fmt.Fprintf(sb, "\treturn BuildParameterizedQuery(\"%s\", \"%s\", qb, orderByClause, limit, offset, options...), nil\n", table.Database, table.Name)
 	fmt.Fprintf(sb, "}\n")
 }
 
@@ -171,9 +171,9 @@ func (g *Generator) writeGetSQLBuilderFunction(sb *strings.Builder, table *click
 	messageName := getProtocMessageName(table.Name)
 	requestType := fmt.Sprintf("Get%sRequest", messageName)
 
-	// Write function signature
+	// Write function signature with query options
 	fmt.Fprintf(sb, "\n// BuildGet%sQuery constructs a parameterized SQL query from a Get%sRequest\n", messageName, messageName)
-	fmt.Fprintf(sb, "func BuildGet%sQuery(req *%s) (SQLQuery, error) {\n", messageName, requestType)
+	fmt.Fprintf(sb, "func BuildGet%sQuery(req *%s, options ...QueryOption) (SQLQuery, error) {\n", messageName, requestType)
 
 	// Get primary key info
 	primaryKey := table.SortingKey[0]
@@ -213,19 +213,20 @@ func (g *Generator) writeGetSQLBuilderFunction(sb *strings.Builder, table *click
 	fmt.Fprintf(sb, "\tqb := NewQueryBuilder()\n")
 	fmt.Fprintf(sb, "\tqb.AddCondition(\"%s\", \"=\", req.%s)\n\n", primaryKey, ToPascalCase(primaryKeyField))
 
-	// Get sorting keys for ORDER BY
-	fmt.Fprintf(sb, "\tsortingKeys := []string{")
+	// Build ORDER BY clause
+	fmt.Fprintf(sb, "\t// Build ORDER BY clause\n")
+	fmt.Fprintf(sb, "\torderByClause := \" ORDER BY ")
 	for i, key := range table.SortingKey {
 		if i > 0 {
 			fmt.Fprintf(sb, ", ")
 		}
-		fmt.Fprintf(sb, "\"%s\"", key)
+		fmt.Fprintf(sb, "%s", key)
 	}
-	fmt.Fprintf(sb, "}\n\n")
+	fmt.Fprintf(sb, "\"\n\n")
 
 	// Return query with LIMIT 1
 	fmt.Fprintf(sb, "\t// Return single record\n")
-	fmt.Fprintf(sb, "\treturn BuildParameterizedQuery(\"%s\", \"%s\", qb, sortingKeys, 1, 0), nil\n", table.Database, table.Name)
+	fmt.Fprintf(sb, "\treturn BuildParameterizedQuery(\"%s\", \"%s\", qb, orderByClause, 1, 0, options...), nil\n", table.Database, table.Name)
 	fmt.Fprintf(sb, "}\n")
 }
 
