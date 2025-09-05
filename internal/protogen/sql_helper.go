@@ -44,6 +44,12 @@ func (g *Generator) generateSQLHelper(table *clickhouse.Table) error {
 	sb.WriteString("\t\"fmt\"\n")
 	sb.WriteString(")\n\n")
 
+	// Generate primary key constant
+	messageName := getProtocMessageName(table.Name)
+	primaryKey := table.SortingKey[0]
+	fmt.Fprintf(sb, "// PrimaryKey%s is the primary key column for %s.%s\n", messageName, table.Database, table.Name)
+	fmt.Fprintf(sb, "const PrimaryKey%s = \"%s\"\n\n", messageName, primaryKey)
+
 	// Generate the List SQL builder function
 	g.writeSQLBuilderFunction(sb, table)
 
