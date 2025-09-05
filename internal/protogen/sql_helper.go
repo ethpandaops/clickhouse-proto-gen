@@ -91,45 +91,6 @@ func (g *Generator) writeSQLBuilderFunction(sb *strings.Builder, table *clickhou
 	fmt.Fprintf(sb, "// BuildList%sQuery constructs a parameterized SQL query from a List%sRequest\n", messageName, messageName)
 	fmt.Fprintf(sb, "func BuildList%sQuery(req *%s, options ...QueryOption) (SQLQuery, error) {\n", messageName, requestType)
 
-	// Check if table has sorting keys
-	if len(table.SortingKey) == 0 {
-		// No sorting key, generate simple query without primary key validation
-		fmt.Fprintf(sb, "\t// Build query using QueryBuilder\n")
-		fmt.Fprintf(sb, "\tqb := NewQueryBuilder()\n\n")
-
-		// Get column map for type information
-		columnMap := make(map[string]*clickhouse.Column)
-		for i := range table.Columns {
-			col := &table.Columns[i]
-			columnMap[col.Name] = col
-		}
-
-		// Process all filters
-		g.writeAllFilterConditions(sb, table, columnMap)
-
-		// Build final query without ORDER BY
-		fmt.Fprintf(sb, "\t// Handle pagination per AIP-132\n")
-		fmt.Fprintf(sb, "\tvar limit, offset uint32\n")
-		fmt.Fprintf(sb, "\tlimit = 100 // Default page size\n")
-		fmt.Fprintf(sb, "\tif req.PageSize > 0 {\n")
-		fmt.Fprintf(sb, "\t\tlimit = uint32(req.PageSize)\n")
-		fmt.Fprintf(sb, "\t\tif limit > 1000 {\n")
-		fmt.Fprintf(sb, "\t\t\tlimit = 1000 // Maximum allowed\n")
-		fmt.Fprintf(sb, "\t\t}\n")
-		fmt.Fprintf(sb, "\t}\n")
-		fmt.Fprintf(sb, "\tif req.PageToken != \"\" {\n")
-		fmt.Fprintf(sb, "\t\tdecodedOffset, err := DecodePageToken(req.PageToken)\n")
-		fmt.Fprintf(sb, "\t\tif err != nil {\n")
-		fmt.Fprintf(sb, "\t\t\treturn SQLQuery{}, fmt.Errorf(\"invalid page_token: %%w\", err)\n")
-		fmt.Fprintf(sb, "\t\t}\n")
-		fmt.Fprintf(sb, "\t\toffset = decodedOffset\n")
-		fmt.Fprintf(sb, "\t}\n\n")
-
-		fmt.Fprintf(sb, "\treturn BuildParameterizedQuery(\"%s\", qb, \"\", limit, offset, options...), nil\n", table.Name)
-		fmt.Fprintf(sb, "}\n")
-		return
-	}
-
 	// Write primary key validation
 	primaryKey := table.SortingKey[0]
 	primaryKeyField := SanitizeName(primaryKey)
