@@ -98,10 +98,11 @@ func (s *service) ListTables(ctx context.Context) ([]string, error) {
 
 func (s *service) GetTable(ctx context.Context, database, tableName string) (*Table, error) {
 	table := &Table{
-		Name:       tableName,
-		Database:   database,
-		Columns:    []Column{},
-		SortingKey: []string{},
+		Name:        tableName,
+		Database:    database,
+		Columns:     []Column{},
+		SortingKey:  []string{},
+		Projections: []Projection{},
 	}
 
 	// Get table metadata
@@ -115,6 +116,18 @@ func (s *service) GetTable(ctx context.Context, database, tableName string) (*Ta
 		return nil, err
 	}
 	table.Columns = columns
+
+	// Get projections
+	projections, err := s.loadTableProjections(ctx, database, tableName)
+	if err != nil {
+		s.log.WithError(err).Warn("Failed to get table projections")
+		// Continue without projections as they're optional
+	} else {
+		table.Projections = projections
+	}
+
+	// For distributed tables, also get projections from the underlying local table
+	s.loadDistributedTableProjections(ctx, database, tableName, table)
 
 	s.log.WithFields(logrus.Fields{
 		"database": database,
@@ -382,6 +395,111 @@ func extractBaseType(clickhouseType string) string {
 	}
 
 	return clickhouseType
+}
+
+// loadTableProjections loads the projections for a table
+func (s *service) loadTableProjections(ctx context.Context, database, tableName string) ([]Projection, error) {
+	projectionsQuery := `
+		SELECT 
+			name,
+			sorting_key,
+			type
+		FROM system.projections
+		WHERE database = ? AND table = ?
+		ORDER BY name
+	`
+
+	rows, err := s.conn.Query(ctx, projectionsQuery, database, tableName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query projections: %w", err)
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			s.log.WithError(err).Warn("Failed to close rows")
+		}
+	}()
+
+	projections := make([]Projection, 0)
+	for rows.Next() {
+		var proj Projection
+		var sortingKeyArray []string
+		var projType string
+
+		if err := rows.Scan(
+			&proj.Name,
+			&sortingKeyArray,
+			&projType,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan projection: %w", err)
+		}
+
+		// The sorting_key is already an array of strings, no need to parse
+		proj.OrderByKey = sortingKeyArray
+		proj.Type = projType
+
+		projections = append(projections, proj)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating projections: %w", err)
+	}
+
+	return projections, nil
+}
+
+// isDistributedTable checks if a table is a distributed table
+func (s *service) isDistributedTable(ctx context.Context, database, tableName string) bool {
+	query := `
+		SELECT engine
+		FROM system.tables
+		WHERE database = ? AND name = ?
+	`
+	var engine sql.NullString
+	if err := s.conn.QueryRow(ctx, query, database, tableName).Scan(&engine); err != nil {
+		return false
+	}
+	return engine.Valid && engine.String == "Distributed"
+}
+
+// getUnderlyingTableName gets the underlying table info for a distributed table
+func (s *service) getUnderlyingTableName(ctx context.Context, database, tableName string) *underlyingTableInfo {
+	query := `
+		SELECT engine_full
+		FROM system.tables
+		WHERE database = ? AND name = ?
+	`
+	var engineFull sql.NullString
+	if err := s.conn.QueryRow(ctx, query, database, tableName).Scan(&engineFull); err != nil {
+		return nil
+	}
+	if !engineFull.Valid {
+		return nil
+	}
+	return s.extractUnderlyingTable(engineFull.String)
+}
+
+// loadDistributedTableProjections loads projections from underlying local table for distributed tables
+func (s *service) loadDistributedTableProjections(ctx context.Context, database, tableName string, table *Table) {
+	if !s.isDistributedTable(ctx, database, tableName) {
+		return
+	}
+
+	underlyingTable := s.getUnderlyingTableName(ctx, database, tableName)
+	if underlyingTable == nil {
+		return
+	}
+
+	localProjections, err := s.loadTableProjections(ctx, underlyingTable.Database, underlyingTable.Table)
+	if err != nil {
+		s.log.WithError(err).WithFields(logrus.Fields{
+			"database": underlyingTable.Database,
+			"table":    underlyingTable.Table,
+		}).Debug("Failed to get projections from underlying local table")
+		return
+	}
+
+	// Merge projections from local table
+	table.Projections = append(table.Projections, localProjections...)
 }
 
 // parseSortingKey parses the sorting key expression from ClickHouse

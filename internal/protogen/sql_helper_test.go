@@ -1,8 +1,11 @@
 package protogen
 
 import (
+	"os"
+	"strings"
 	"testing"
 
+	"github.com/ethpandaops/clickhouse-proto-gen/internal/clickhouse"
 	"github.com/ethpandaops/clickhouse-proto-gen/internal/config"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -106,4 +109,216 @@ func TestBuildParameterizedQuerySignature(t *testing.T) {
 	// The actual test would involve generating the code and parsing it
 	// For now, we just ensure the concept is tested
 	assert.True(t, true, "Signature test placeholder")
+}
+
+// TestSQLHelperWithProjections tests SQL helper generation with projections
+func TestSQLHelperWithProjections(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
+
+	tests := []struct {
+		name           string
+		table          *clickhouse.Table
+		expectedInCode []string
+		notExpected    []string
+	}{
+		{
+			name: "table with projection having different primary key",
+			table: &clickhouse.Table{
+				Name:     "events",
+				Database: "default",
+				Columns: []clickhouse.Column{
+					{Name: "timestamp", Type: "DateTime", BaseType: "DateTime"},
+					{Name: "user_id", Type: "UInt64", BaseType: "UInt64"},
+					{Name: "event_type", Type: "String", BaseType: "String"},
+					{Name: "data", Type: "String", BaseType: "String"},
+				},
+				SortingKey: []string{"timestamp", "user_id"},
+				Projections: []clickhouse.Projection{
+					{
+						Name:       "user_events",
+						OrderByKey: []string{"user_id", "timestamp"},
+						Type:       "NORMAL",
+					},
+				},
+			},
+			expectedInCode: []string{
+				"// Validate that at least one primary key is provided",
+				"// Primary keys can come from base table or projections",
+				"at least one primary key field is required: timestamp, user_id",
+				"// Available projections:",
+				"//   - user_events (primary key: user_id)",
+				"// Use WithProjection() option to select a specific projection.",
+			},
+			notExpected: []string{
+				"primary key field timestamp is required", // Should not have single field validation
+			},
+		},
+		{
+			name: "table with projection sharing same primary key",
+			table: &clickhouse.Table{
+				Name:     "metrics",
+				Database: "default",
+				Columns: []clickhouse.Column{
+					{Name: "metric_id", Type: "UInt64", BaseType: "UInt64"},
+					{Name: "value", Type: "Float64", BaseType: "Float64"},
+					{Name: "timestamp", Type: "DateTime", BaseType: "DateTime"},
+				},
+				SortingKey: []string{"metric_id", "timestamp"},
+				Projections: []clickhouse.Projection{
+					{
+						Name:       "metric_summary",
+						OrderByKey: []string{"metric_id"},
+						Type:       "AGGREGATE",
+					},
+				},
+			},
+			expectedInCode: []string{
+				"// Validate that at least one primary key is provided",
+				"primary key field metric_id is required", // Single key since both have the same
+				"// Available projections:",
+				"//   - metric_summary (primary key: metric_id)",
+			},
+			notExpected: []string{
+				"at least one primary key field is required:", // Should be single field validation
+			},
+		},
+		{
+			name: "table with no projections",
+			table: &clickhouse.Table{
+				Name:     "simple",
+				Database: "default",
+				Columns: []clickhouse.Column{
+					{Name: "id", Type: "UInt64", BaseType: "UInt64"},
+					{Name: "name", Type: "String", BaseType: "String"},
+				},
+				SortingKey: []string{"id"},
+			},
+			expectedInCode: []string{
+				"primary key field id is required",
+			},
+			notExpected: []string{
+				"// Available projections:",
+				"// Use WithProjection()",
+				"at least one primary key field is required:",
+			},
+		},
+		{
+			name: "table with multiple projections",
+			table: &clickhouse.Table{
+				Name:     "logs",
+				Database: "default",
+				Columns: []clickhouse.Column{
+					{Name: "log_id", Type: "UInt64", BaseType: "UInt64"},
+					{Name: "level", Type: "String", BaseType: "String"},
+					{Name: "message", Type: "String", BaseType: "String"},
+					{Name: "timestamp", Type: "DateTime", BaseType: "DateTime"},
+					{Name: "host", Type: "String", BaseType: "String"},
+				},
+				SortingKey: []string{"log_id"},
+				Projections: []clickhouse.Projection{
+					{
+						Name:       "by_level",
+						OrderByKey: []string{"level", "timestamp"},
+						Type:       "NORMAL",
+					},
+					{
+						Name:       "by_host",
+						OrderByKey: []string{"host", "timestamp"},
+						Type:       "NORMAL",
+					},
+				},
+			},
+			expectedInCode: []string{
+				"// Validate that at least one primary key is provided",
+				"at least one primary key field is required: log_id, level, host",
+				"// Available projections:",
+				"//   - by_level (primary key: level)",
+				"//   - by_host (primary key: host)",
+			},
+			notExpected: []string{
+				"primary key field log_id is required", // Should be multiple field validation
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{
+				GoPackage:       "github.com/test/pkg",
+				Package:         "test.v1",
+				OutputDir:       t.TempDir(),
+				IncludeComments: true,
+			}
+
+			gen := NewGenerator(cfg, logger)
+			var sb strings.Builder
+
+			// Generate the SQL builder function
+			gen.writeSQLBuilderFunction(&sb, tt.table)
+
+			generatedCode := sb.String()
+
+			// Check expected strings
+			for _, expected := range tt.expectedInCode {
+				assert.Contains(t, generatedCode, expected,
+					"Expected to find '%s' in generated code", expected)
+			}
+
+			// Check strings that should not be present
+			for _, notExpected := range tt.notExpected {
+				assert.NotContains(t, generatedCode, notExpected,
+					"Did not expect to find '%s' in generated code", notExpected)
+			}
+		})
+	}
+}
+
+// TestBuildParameterizedQueryWithProjection tests projection support in BuildParameterizedQuery
+func TestBuildParameterizedQueryWithProjection(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
+
+	cfg := &config.Config{
+		GoPackage:       "github.com/test/pkg",
+		Package:         "test.v1",
+		OutputDir:       t.TempDir(),
+		IncludeComments: true,
+	}
+
+	gen := NewGenerator(cfg, logger)
+
+	// Generate common SQL helpers
+	err := gen.GenerateSQLCommon()
+	assert.NoError(t, err)
+
+	// Read the generated file and verify projection support
+	generatedPath := cfg.OutputDir + "/common.go"
+	content, err := readFile(generatedPath)
+	assert.NoError(t, err)
+
+	// Check for projection-related code
+	expectedContent := []string{
+		"// Projection optionally specifies the projection to use",
+		"Projection string",
+		"// WithProjection specifies the projection to use",
+		"func WithProjection(projection string) QueryOption",
+		"opts.Projection = projection",
+		`if opts.Projection != ""`,
+		`fromClause = fmt.Sprintf("%s PROJECTION %s", fromClause, opts.Projection)`,
+	}
+
+	for _, expected := range expectedContent {
+		assert.Contains(t, content, expected,
+			"Expected to find '%s' in generated common.go", expected)
+	}
+}
+
+// Helper function to read file content
+func readFile(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }
