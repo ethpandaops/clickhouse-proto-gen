@@ -3,11 +3,12 @@ package clickhouse
 
 // Table represents a ClickHouse table structure with its columns and metadata
 type Table struct {
-	Name       string
-	Database   string
-	Comment    string
-	Columns    []Column
-	SortingKey []string // ORDER BY columns
+	Name        string
+	Database    string
+	Comment     string
+	Columns     []Column
+	SortingKey  []string // ORDER BY columns
+	Projections []Projection
 }
 
 // Column represents a ClickHouse table column with its properties
@@ -30,4 +31,11 @@ type TableMetadata struct {
 	Engine      string
 	CreateTable string
 	Comment     string
+}
+
+// Projection represents a ClickHouse projection with its properties
+type Projection struct {
+	Name       string
+	OrderByKey []string // ORDER BY columns for the projection
+	Type       string   // Type of projection (e.g., "AGGREGATE")
 }

@@ -12,6 +12,11 @@ import (
 // GenerateSQLHelpers generates SQL query builder helpers for all tables
 func (g *Generator) GenerateSQLHelpers(tables []*clickhouse.Table) error {
 	for _, table := range tables {
+		// Skip tables with no columns (likely non-existent or failed to load)
+		if len(table.Columns) == 0 {
+			g.log.WithField("table", table.Name).Warn("Skipping SQL helper generation for table with no columns")
+			continue
+		}
 		if err := g.generateSQLHelper(table); err != nil {
 			return err
 		}
@@ -89,16 +94,23 @@ func (g *Generator) writeSQLBuilderFunction(sb *strings.Builder, table *clickhou
 
 	// Write function signature - now returns SQLQuery and accepts query options
 	fmt.Fprintf(sb, "// BuildList%sQuery constructs a parameterized SQL query from a List%sRequest\n", messageName, messageName)
+	if len(table.Projections) > 0 {
+		fmt.Fprintf(sb, "//\n")
+		fmt.Fprintf(sb, "// Available projections:\n")
+		for _, proj := range table.Projections {
+			if len(proj.OrderByKey) > 0 {
+				fmt.Fprintf(sb, "//   - %s (primary key: %s)\n", proj.Name, proj.OrderByKey[0])
+			} else {
+				fmt.Fprintf(sb, "//   - %s\n", proj.Name)
+			}
+		}
+		fmt.Fprintf(sb, "//\n")
+		fmt.Fprintf(sb, "// Use WithProjection() option to select a specific projection.\n")
+	}
 	fmt.Fprintf(sb, "func BuildList%sQuery(req *%s, options ...QueryOption) (SQLQuery, error) {\n", messageName, requestType)
 
-	// Write primary key validation
-	primaryKey := table.SortingKey[0]
-	primaryKeyField := SanitizeName(primaryKey)
-
-	fmt.Fprintf(sb, "\t// Validate primary key is provided\n")
-	fmt.Fprintf(sb, "\tif req.%s == nil {\n", ToPascalCase(primaryKeyField))
-	fmt.Fprintf(sb, "\t\treturn SQLQuery{}, fmt.Errorf(\"primary key field %s is required\")\n", primaryKey)
-	fmt.Fprintf(sb, "\t}\n\n")
+	// Write primary key validation - check base table and projections
+	g.writePrimaryKeyValidation(sb, table)
 
 	// Write query building logic with QueryBuilder
 	fmt.Fprintf(sb, "\t// Build query using QueryBuilder\n")
@@ -151,19 +163,79 @@ func (g *Generator) writeSQLBuilderFunction(sb *strings.Builder, table *clickhou
 	fmt.Fprintf(sb, "\t\t}\n")
 	fmt.Fprintf(sb, "\t\torderByClause = BuildOrderByClause(orderFields)\n")
 	fmt.Fprintf(sb, "\t} else {\n")
-	fmt.Fprintf(sb, "\t\t// Default sorting by primary key\n")
-	fmt.Fprintf(sb, "\t\torderByClause = \" ORDER BY ")
-	for i, key := range table.SortingKey {
-		if i > 0 {
-			fmt.Fprintf(sb, " + \", ")
+	if len(table.SortingKey) > 0 {
+		fmt.Fprintf(sb, "\t\t// Default sorting by primary key\n")
+		fmt.Fprintf(sb, "\t\torderByClause = \" ORDER BY ")
+		for i, key := range table.SortingKey {
+			if i > 0 {
+				fmt.Fprintf(sb, " + \", ")
+			}
+			fmt.Fprintf(sb, "%s\"", key)
 		}
-		fmt.Fprintf(sb, "%s\"", key)
+		fmt.Fprintf(sb, "\n")
+	} else {
+		fmt.Fprintf(sb, "\t\t// No default sorting (table has no primary key)\n")
+		fmt.Fprintf(sb, "\t\torderByClause = \"\"\n")
 	}
-	fmt.Fprintf(sb, "\n")
 	fmt.Fprintf(sb, "\t}\n\n")
 
 	fmt.Fprintf(sb, "\treturn BuildParameterizedQuery(\"%s\", qb, orderByClause, limit, offset, options...), nil\n", table.Name)
 	fmt.Fprintf(sb, "}\n")
+}
+
+// writePrimaryKeyValidation writes validation to ensure at least one primary key is provided
+func (g *Generator) writePrimaryKeyValidation(sb *strings.Builder, table *clickhouse.Table) {
+	// Collect all primary keys from base table and projections
+	allPrimaryKeys := make(map[string]bool)
+
+	// Add base table primary key if exists
+	if len(table.SortingKey) > 0 {
+		allPrimaryKeys[table.SortingKey[0]] = true
+	}
+
+	// Add projection primary keys (first column in ORDER BY)
+	for _, proj := range table.Projections {
+		if len(proj.OrderByKey) > 0 {
+			allPrimaryKeys[proj.OrderByKey[0]] = true
+		}
+	}
+
+	if len(allPrimaryKeys) == 0 {
+		// No primary keys at all, no validation needed
+		return
+	}
+
+	fmt.Fprintf(sb, "\t// Validate that at least one primary key is provided\n")
+	fmt.Fprintf(sb, "\t// Primary keys can come from base table or projections\n")
+
+	// Build the validation condition
+	conditions := make([]string, 0, len(allPrimaryKeys))
+	for key := range allPrimaryKeys {
+		fieldName := SanitizeName(key)
+		conditions = append(conditions, fmt.Sprintf("req.%s == nil", ToPascalCase(fieldName)))
+	}
+
+	if len(conditions) == 1 {
+		// Only one primary key exists
+		fmt.Fprintf(sb, "\tif %s {\n", conditions[0])
+		var keyNames []string
+		for key := range allPrimaryKeys {
+			keyNames = append(keyNames, key)
+		}
+		fmt.Fprintf(sb, "\t\treturn SQLQuery{}, fmt.Errorf(\"primary key field %s is required\")\n", keyNames[0])
+	} else {
+		// Multiple primary keys exist, at least one must be provided
+		fmt.Fprintf(sb, "\tif %s {\n", strings.Join(conditions, " && "))
+
+		// Create a sorted list of keys for consistent error messages
+		var keyNames []string
+		for key := range allPrimaryKeys {
+			keyNames = append(keyNames, key)
+		}
+
+		fmt.Fprintf(sb, "\t\treturn SQLQuery{}, fmt.Errorf(\"at least one primary key field is required: %s\")\n", strings.Join(keyNames, ", "))
+	}
+	fmt.Fprintf(sb, "\t}\n\n")
 }
 
 // writeGetSQLBuilderFunction generates the SQL query builder function for a Get request
@@ -243,16 +315,20 @@ func (g *Generator) writeGetSQLBuilderFunction(sb *strings.Builder, table *click
 
 // writeAllFilterConditions writes filter conditions for all columns
 func (g *Generator) writeAllFilterConditions(sb *strings.Builder, table *clickhouse.Table, columnMap map[string]*clickhouse.Column) {
-	// Process primary key filter
-	primaryKey := table.SortingKey[0]
-	primaryKeyField := SanitizeName(primaryKey)
-	fmt.Fprintf(sb, "\t// Add primary key filter\n")
-	g.writeFilterCondition(sb, primaryKey, primaryKeyField, columnMap[primaryKey], true)
+	// Check if table has a primary key
+	var primaryKey string
+	if len(table.SortingKey) > 0 {
+		// Process primary key filter
+		primaryKey = table.SortingKey[0]
+		primaryKeyField := SanitizeName(primaryKey)
+		fmt.Fprintf(sb, "\t// Add primary key filter\n")
+		g.writeFilterCondition(sb, primaryKey, primaryKeyField, columnMap[primaryKey], true)
+	}
 
 	// Process all other columns
 	for _, col := range table.Columns {
 		// Skip primary key as it's already handled
-		if col.Name == primaryKey {
+		if primaryKey != "" && col.Name == primaryKey {
 			continue
 		}
 		fieldName := SanitizeName(col.Name)
