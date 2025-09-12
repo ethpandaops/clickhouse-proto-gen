@@ -231,7 +231,7 @@ func TestSQLHelperWithProjections(t *testing.T) {
 			},
 			expectedInCode: []string{
 				"// Validate that at least one primary key is provided",
-				"at least one primary key field is required: log_id, level, host",
+				"at least one primary key field is required: host, level, log_id",
 				"// Available projections:",
 				"//   - by_level (primary key: level)",
 				"//   - by_host (primary key: host)",
