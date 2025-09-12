@@ -96,13 +96,54 @@ func (g *Generator) generateTableFile(table *clickhouse.Table) error {
 
 func (g *Generator) checkNeedsWrapper(tables []*clickhouse.Table) bool {
 	for _, table := range tables {
-		for _, column := range table.Columns {
-			if column.IsNullable && !column.IsArray {
-				// Check if the type would use a wrapper
-				protoType := g.typeMapper.mapBaseType(column.BaseType, column.Type)
-				if g.typeMapper.getWrapperType(protoType) != "" {
-					return true
-				}
+		// Check if nullable columns in the main message need wrappers
+		if g.tableNeedsWrapperForMessage(table) {
+			return true
+		}
+
+		// Check if service request messages need wrappers
+		if g.tableNeedsWrapperForService(table) {
+			return true
+		}
+	}
+	return false
+}
+
+// tableNeedsWrapperForMessage checks if a table's nullable columns need wrapper types
+func (g *Generator) tableNeedsWrapperForMessage(table *clickhouse.Table) bool {
+	for _, column := range table.Columns {
+		if column.IsNullable && !column.IsArray {
+			// Check if the type would use a wrapper
+			protoType := g.typeMapper.mapBaseType(column.BaseType, column.Type)
+			if g.typeMapper.getWrapperType(protoType) != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// tableNeedsWrapperForService checks if a table's service definitions need wrapper types
+func (g *Generator) tableNeedsWrapperForService(table *clickhouse.Table) bool {
+	// Service is generated when table has sorting keys
+	if len(table.SortingKey) == 0 {
+		return false
+	}
+
+	// Check all columns that will be in the request message
+	for _, column := range table.Columns {
+		// Skip arrays - they use repeated, not wrappers
+		if column.IsArray {
+			continue
+		}
+
+		// Check if this column will use a filter type
+		filterType := g.typeMapper.GetFilterTypeForColumn(&column)
+		if filterType == "" {
+			// No filter type available, will use wrapper type
+			protoType := g.typeMapper.mapBaseType(column.BaseType, column.Type)
+			if g.typeMapper.getWrapperType(protoType) != "" {
+				return true
 			}
 		}
 	}
