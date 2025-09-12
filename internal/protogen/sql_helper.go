@@ -4,6 +4,7 @@ package protogen
 import (
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/ethpandaops/clickhouse-proto-gen/internal/clickhouse"
@@ -205,12 +206,19 @@ func (g *Generator) writePrimaryKeyValidation(sb *strings.Builder, table *clickh
 		return
 	}
 
+	// Create a sorted list of keys for deterministic output
+	keyNames := make([]string, 0, len(allPrimaryKeys))
+	for key := range allPrimaryKeys {
+		keyNames = append(keyNames, key)
+	}
+	sort.Strings(keyNames)
+
 	fmt.Fprintf(sb, "\t// Validate that at least one primary key is provided\n")
 	fmt.Fprintf(sb, "\t// Primary keys can come from base table or projections\n")
 
-	// Build the validation condition
-	conditions := make([]string, 0, len(allPrimaryKeys))
-	for key := range allPrimaryKeys {
+	// Build the validation condition with sorted keys
+	conditions := make([]string, 0, len(keyNames))
+	for _, key := range keyNames {
 		fieldName := SanitizeName(key)
 		conditions = append(conditions, fmt.Sprintf("req.%s == nil", ToPascalCase(fieldName)))
 	}
@@ -218,21 +226,10 @@ func (g *Generator) writePrimaryKeyValidation(sb *strings.Builder, table *clickh
 	if len(conditions) == 1 {
 		// Only one primary key exists
 		fmt.Fprintf(sb, "\tif %s {\n", conditions[0])
-		var keyNames []string
-		for key := range allPrimaryKeys {
-			keyNames = append(keyNames, key)
-		}
 		fmt.Fprintf(sb, "\t\treturn SQLQuery{}, fmt.Errorf(\"primary key field %s is required\")\n", keyNames[0])
 	} else {
 		// Multiple primary keys exist, at least one must be provided
 		fmt.Fprintf(sb, "\tif %s {\n", strings.Join(conditions, " && "))
-
-		// Create a sorted list of keys for consistent error messages
-		var keyNames []string
-		for key := range allPrimaryKeys {
-			keyNames = append(keyNames, key)
-		}
-
 		fmt.Fprintf(sb, "\t\treturn SQLQuery{}, fmt.Errorf(\"at least one primary key field is required: %s\")\n", strings.Join(keyNames, ", "))
 	}
 	fmt.Fprintf(sb, "\t}\n\n")
