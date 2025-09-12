@@ -354,7 +354,21 @@ func (g *Generator) writeFilterCondition(sb *strings.Builder, columnName, fieldN
 
 	fmt.Fprintf(sb, "%sswitch filter := req.%s.Filter.(type) {\n", indent, pascalFieldName)
 
-	// Handle different filter types based on the column type
+	// Write filter cases based on type
+	g.writeFilterCases(sb, columnName, filterType, indent)
+
+	// Add default case
+	fmt.Fprintf(sb, "%sdefault:\n", indent)
+	fmt.Fprintf(sb, "%s\t// Unsupported filter type\n", indent)
+	fmt.Fprintf(sb, "%s}\n", indent)
+
+	if !isPrimary {
+		fmt.Fprintf(sb, "\t}\n")
+	}
+}
+
+// writeFilterCases writes the appropriate filter cases based on the filter type
+func (g *Generator) writeFilterCases(sb *strings.Builder, columnName, filterType, indent string) {
 	switch {
 	case strings.HasPrefix(filterType, "NullableString"):
 		g.writeNullableStringFilterCases(sb, columnName, indent)
@@ -376,15 +390,10 @@ func (g *Generator) writeFilterCondition(sb *strings.Builder, columnName, fieldN
 		g.writeNullableNumericFilterCases(sb, columnName, indent, "Int64")
 	case filterType == "Int64Filter":
 		g.writeNumericFilterCases(sb, columnName, indent, "Int64")
-	}
-
-	// Add default case
-	fmt.Fprintf(sb, "%sdefault:\n", indent)
-	fmt.Fprintf(sb, "%s\t// Unsupported filter type\n", indent)
-	fmt.Fprintf(sb, "%s}\n", indent)
-
-	if !isPrimary {
-		fmt.Fprintf(sb, "\t}\n")
+	case strings.HasPrefix(filterType, "NullableBool"):
+		g.writeNullableBoolFilterCases(sb, columnName, indent)
+	case filterType == "BoolFilter":
+		g.writeBoolFilterCases(sb, columnName, indent)
 	}
 }
 
@@ -542,5 +551,29 @@ func (g *Generator) writeNullableNumericFilterCases(sb *strings.Builder, columnN
 	fmt.Fprintf(sb, "%s\tqb.AddIsNullCondition(\"%s\")\n", indent, columnName)
 
 	fmt.Fprintf(sb, "%scase *%sFilter_IsNotNull:\n", indent, typePrefix)
+	fmt.Fprintf(sb, "%s\tqb.AddIsNotNullCondition(\"%s\")\n", indent, columnName)
+}
+
+// writeBoolFilterCases generates switch cases for BoolFilter using QueryBuilder
+func (g *Generator) writeBoolFilterCases(sb *strings.Builder, columnName, indent string) {
+	fmt.Fprintf(sb, "%scase *BoolFilter_Eq:\n", indent)
+	fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \"=\", filter.Eq)\n", indent, columnName)
+
+	fmt.Fprintf(sb, "%scase *BoolFilter_Ne:\n", indent)
+	fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \"!=\", filter.Ne)\n", indent, columnName)
+}
+
+// writeNullableBoolFilterCases generates switch cases for NullableBoolFilter using QueryBuilder
+func (g *Generator) writeNullableBoolFilterCases(sb *strings.Builder, columnName, indent string) {
+	fmt.Fprintf(sb, "%scase *NullableBoolFilter_Eq:\n", indent)
+	fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \"=\", filter.Eq)\n", indent, columnName)
+
+	fmt.Fprintf(sb, "%scase *NullableBoolFilter_Ne:\n", indent)
+	fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \"!=\", filter.Ne)\n", indent, columnName)
+
+	fmt.Fprintf(sb, "%scase *NullableBoolFilter_IsNull:\n", indent)
+	fmt.Fprintf(sb, "%s\tqb.AddIsNullCondition(\"%s\")\n", indent, columnName)
+
+	fmt.Fprintf(sb, "%scase *NullableBoolFilter_IsNotNull:\n", indent)
 	fmt.Fprintf(sb, "%s\tqb.AddIsNotNullCondition(\"%s\")\n", indent, columnName)
 }
