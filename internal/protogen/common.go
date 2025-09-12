@@ -256,6 +256,26 @@ func (g *Generator) writeRangeTypes(sb *strings.Builder) {
 	sb.WriteString("message StringList {\n")
 	sb.WriteString("  repeated string values = 1;\n")
 	sb.WriteString("}\n\n")
+
+	// Bool filter types for non-nullable fields
+	sb.WriteString("// BoolFilter represents filtering options for non-nullable bool values\n")
+	sb.WriteString("message BoolFilter {\n")
+	sb.WriteString("  oneof filter {\n")
+	sb.WriteString("    bool eq = 1;                   // Equal to value\n")
+	sb.WriteString("    bool ne = 2;                   // Not equal to value\n")
+	sb.WriteString("  }\n")
+	sb.WriteString("}\n\n")
+
+	// Nullable Bool filter
+	sb.WriteString("// NullableBoolFilter represents filtering options for nullable bool values\n")
+	sb.WriteString("message NullableBoolFilter {\n")
+	sb.WriteString("  oneof filter {\n")
+	sb.WriteString("    bool eq = 1;                   // Equal to value\n")
+	sb.WriteString("    bool ne = 2;                   // Not equal to value\n")
+	sb.WriteString("    google.protobuf.Empty is_null = 3;     // IS NULL check\n")
+	sb.WriteString("    google.protobuf.Empty is_not_null = 4; // IS NOT NULL check\n")
+	sb.WriteString("  }\n")
+	sb.WriteString("}\n\n")
 }
 
 func (g *Generator) writeCommonTypes(sb *strings.Builder) {

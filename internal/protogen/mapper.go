@@ -391,6 +391,8 @@ func (tm *TypeMapper) GetFilterTypeForColumn(column *clickhouse.Column) string {
 		baseFilterType = "UInt64Filter"
 	case protoString:
 		baseFilterType = "StringFilter"
+	case protoBool:
+		baseFilterType = "BoolFilter"
 	default:
 		// For other types, no filter type available
 		return ""
