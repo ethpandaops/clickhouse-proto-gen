@@ -18,6 +18,11 @@ func (g *Generator) GenerateSQLHelpers(tables []*clickhouse.Table) error {
 			g.log.WithField("table", table.Name).Warn("Skipping SQL helper generation for table with no columns")
 			continue
 		}
+		// Skip tables without sorting keys (no service/request types generated for them)
+		if len(table.SortingKey) == 0 {
+			g.log.WithField("table", table.Name).Debug("Skipping SQL helper generation for table without sorting key")
+			continue
+		}
 		if err := g.generateSQLHelper(table); err != nil {
 			return err
 		}
@@ -367,33 +372,66 @@ func (g *Generator) writeFilterCondition(sb *strings.Builder, columnName, fieldN
 	}
 }
 
+// handleNumericFilter handles numeric filter types
+func (g *Generator) handleNumericFilter(sb *strings.Builder, columnName, filterType, indent string) {
+	isNullable := strings.HasPrefix(filterType, "Nullable")
+	numericType := strings.TrimPrefix(filterType, "Nullable")
+	numericType = strings.TrimSuffix(numericType, "Filter")
+
+	if isNullable {
+		g.writeNullableNumericFilterCases(sb, columnName, indent, numericType)
+	} else {
+		g.writeNumericFilterCases(sb, columnName, indent, numericType)
+	}
+}
+
+// handleMapFilter handles Map filter types
+func (g *Generator) handleMapFilter(sb *strings.Builder, columnName, filterType, indent string) {
+	if filterType == "MapStringStringFilter" {
+		g.writeMapStringStringFilterCases(sb, columnName, indent)
+		return
+	}
+
+	// Extract numeric type from MapString<Type>Filter
+	if strings.HasPrefix(filterType, "MapString") && strings.HasSuffix(filterType, "Filter") {
+		numericType := strings.TrimPrefix(filterType, "MapString")
+		numericType = strings.TrimSuffix(numericType, "Filter")
+		g.writeMapStringNumericFilterCases(sb, columnName, indent, numericType)
+	}
+}
+
 // writeFilterCases writes the appropriate filter cases based on the filter type
 func (g *Generator) writeFilterCases(sb *strings.Builder, columnName, filterType, indent string) {
-	switch {
-	case strings.HasPrefix(filterType, "NullableString"):
-		g.writeNullableStringFilterCases(sb, columnName, indent)
-	case filterType == "StringFilter":
-		g.writeStringFilterCases(sb, columnName, indent)
-	case strings.HasPrefix(filterType, "NullableUInt32"):
-		g.writeNullableNumericFilterCases(sb, columnName, indent, "UInt32")
-	case filterType == "UInt32Filter":
-		g.writeNumericFilterCases(sb, columnName, indent, "UInt32")
-	case strings.HasPrefix(filterType, "NullableUInt64"):
-		g.writeNullableNumericFilterCases(sb, columnName, indent, "UInt64")
-	case filterType == "UInt64Filter":
-		g.writeNumericFilterCases(sb, columnName, indent, "UInt64")
-	case strings.HasPrefix(filterType, "NullableInt32"):
-		g.writeNullableNumericFilterCases(sb, columnName, indent, "Int32")
-	case filterType == "Int32Filter":
-		g.writeNumericFilterCases(sb, columnName, indent, "Int32")
-	case strings.HasPrefix(filterType, "NullableInt64"):
-		g.writeNullableNumericFilterCases(sb, columnName, indent, "Int64")
-	case filterType == "Int64Filter":
-		g.writeNumericFilterCases(sb, columnName, indent, "Int64")
-	case strings.HasPrefix(filterType, "NullableBool"):
-		g.writeNullableBoolFilterCases(sb, columnName, indent)
-	case filterType == "BoolFilter":
-		g.writeBoolFilterCases(sb, columnName, indent)
+	// Handle string filters
+	if strings.Contains(filterType, "String") && !strings.HasPrefix(filterType, "Map") {
+		if strings.HasPrefix(filterType, "Nullable") {
+			g.writeNullableStringFilterCases(sb, columnName, indent)
+		} else {
+			g.writeStringFilterCases(sb, columnName, indent)
+		}
+		return
+	}
+
+	// Handle boolean filters
+	if strings.Contains(filterType, "Bool") {
+		if strings.HasPrefix(filterType, "Nullable") {
+			g.writeNullableBoolFilterCases(sb, columnName, indent)
+		} else {
+			g.writeBoolFilterCases(sb, columnName, indent)
+		}
+		return
+	}
+
+	// Handle Map filters
+	if strings.HasPrefix(filterType, "Map") {
+		g.handleMapFilter(sb, columnName, filterType, indent)
+		return
+	}
+
+	// Handle numeric filters (Int32, Int64, UInt32, UInt64)
+	if strings.Contains(filterType, "Int32") || strings.Contains(filterType, "Int64") ||
+		strings.Contains(filterType, "UInt32") || strings.Contains(filterType, "UInt64") {
+		g.handleNumericFilter(sb, columnName, filterType, indent)
 	}
 }
 
@@ -576,4 +614,84 @@ func (g *Generator) writeNullableBoolFilterCases(sb *strings.Builder, columnName
 
 	fmt.Fprintf(sb, "%scase *NullableBoolFilter_IsNotNull:\n", indent)
 	fmt.Fprintf(sb, "%s\tqb.AddIsNotNullCondition(\"%s\")\n", indent, columnName)
+}
+
+// writeMapStringStringFilterCases generates switch cases for MapStringStringFilter using QueryBuilder
+func (g *Generator) writeMapStringStringFilterCases(sb *strings.Builder, columnName, indent string) {
+	fmt.Fprintf(sb, "%scase *MapStringStringFilter_KeyValue:\n", indent)
+	fmt.Fprintf(sb, "%s\t// Handle key-value filter with string values\n", indent)
+	fmt.Fprintf(sb, "%s\tswitch kvFilter := filter.KeyValue.ValueFilter.Filter.(type) {\n", indent)
+	fmt.Fprintf(sb, "%s\tcase *StringFilter_Eq:\n", indent)
+	fmt.Fprintf(sb, "%s\t\tqb.AddMapKeyCondition(\"%s\", filter.KeyValue.Key, \"=\", kvFilter.Eq)\n", indent, columnName)
+	fmt.Fprintf(sb, "%s\tcase *StringFilter_Ne:\n", indent)
+	fmt.Fprintf(sb, "%s\t\tqb.AddMapKeyCondition(\"%s\", filter.KeyValue.Key, \"!=\", kvFilter.Ne)\n", indent, columnName)
+	fmt.Fprintf(sb, "%s\tcase *StringFilter_Like:\n", indent)
+	fmt.Fprintf(sb, "%s\t\tqb.AddMapKeyLikeCondition(\"%s\", filter.KeyValue.Key, kvFilter.Like)\n", indent, columnName)
+	fmt.Fprintf(sb, "%s\tcase *StringFilter_StartsWith:\n", indent)
+	fmt.Fprintf(sb, "%s\t\tqb.AddMapKeyLikeCondition(\"%s\", filter.KeyValue.Key, kvFilter.StartsWith + \"%%\")\n", indent, columnName)
+	fmt.Fprintf(sb, "%s\tcase *StringFilter_EndsWith:\n", indent)
+	fmt.Fprintf(sb, "%s\t\tqb.AddMapKeyLikeCondition(\"%s\", filter.KeyValue.Key, \"%%\" + kvFilter.EndsWith)\n", indent, columnName)
+	fmt.Fprintf(sb, "%s\tcase *StringFilter_Contains:\n", indent)
+	fmt.Fprintf(sb, "%s\t\tqb.AddMapKeyLikeCondition(\"%s\", filter.KeyValue.Key, \"%%\" + kvFilter.Contains + \"%%\")\n", indent, columnName)
+	fmt.Fprintf(sb, "%s\t}\n", indent)
+
+	fmt.Fprintf(sb, "%scase *MapStringStringFilter_HasKey:\n", indent)
+	fmt.Fprintf(sb, "%s\tqb.AddMapContainsCondition(\"%s\", filter.HasKey)\n", indent, columnName)
+
+	fmt.Fprintf(sb, "%scase *MapStringStringFilter_NotHasKey:\n", indent)
+	fmt.Fprintf(sb, "%s\tqb.AddNotMapContainsCondition(\"%s\", filter.NotHasKey)\n", indent, columnName)
+
+	fmt.Fprintf(sb, "%scase *MapStringStringFilter_HasAnyKey:\n", indent)
+	fmt.Fprintf(sb, "%s\tif len(filter.HasAnyKey.Values) > 0 {\n", indent)
+	fmt.Fprintf(sb, "%s\t\tqb.AddMapContainsAnyCondition(\"%s\", filter.HasAnyKey.Values)\n", indent, columnName)
+	fmt.Fprintf(sb, "%s\t}\n", indent)
+
+	fmt.Fprintf(sb, "%scase *MapStringStringFilter_HasAllKeys:\n", indent)
+	fmt.Fprintf(sb, "%s\tif len(filter.HasAllKeys.Values) > 0 {\n", indent)
+	fmt.Fprintf(sb, "%s\t\tfor _, key := range filter.HasAllKeys.Values {\n", indent)
+	fmt.Fprintf(sb, "%s\t\t\tqb.AddMapContainsCondition(\"%s\", key)\n", indent, columnName)
+	fmt.Fprintf(sb, "%s\t\t}\n", indent)
+	fmt.Fprintf(sb, "%s\t}\n", indent)
+}
+
+// writeMapStringNumericFilterCases generates switch cases for Map(String, Numeric) filters
+func (g *Generator) writeMapStringNumericFilterCases(sb *strings.Builder, columnName, indent, numericType string) {
+	filterType := fmt.Sprintf("MapString%sFilter", numericType)
+
+	fmt.Fprintf(sb, "%scase *%s_KeyValue:\n", indent, filterType)
+	fmt.Fprintf(sb, "%s\t// Handle key-value filter with %s values\n", indent, numericType)
+	fmt.Fprintf(sb, "%s\tswitch kvFilter := filter.KeyValue.ValueFilter.Filter.(type) {\n", indent)
+	fmt.Fprintf(sb, "%s\tcase *%sFilter_Eq:\n", indent, numericType)
+	fmt.Fprintf(sb, "%s\t\tqb.AddMapKeyCondition(\"%s\", filter.KeyValue.Key, \"=\", kvFilter.Eq)\n", indent, columnName)
+	fmt.Fprintf(sb, "%s\tcase *%sFilter_Ne:\n", indent, numericType)
+	fmt.Fprintf(sb, "%s\t\tqb.AddMapKeyCondition(\"%s\", filter.KeyValue.Key, \"!=\", kvFilter.Ne)\n", indent, columnName)
+	fmt.Fprintf(sb, "%s\tcase *%sFilter_Lt:\n", indent, numericType)
+	fmt.Fprintf(sb, "%s\t\tqb.AddMapKeyCondition(\"%s\", filter.KeyValue.Key, \"<\", kvFilter.Lt)\n", indent, columnName)
+	fmt.Fprintf(sb, "%s\tcase *%sFilter_Lte:\n", indent, numericType)
+	fmt.Fprintf(sb, "%s\t\tqb.AddMapKeyCondition(\"%s\", filter.KeyValue.Key, \"<=\", kvFilter.Lte)\n", indent, columnName)
+	fmt.Fprintf(sb, "%s\tcase *%sFilter_Gt:\n", indent, numericType)
+	fmt.Fprintf(sb, "%s\t\tqb.AddMapKeyCondition(\"%s\", filter.KeyValue.Key, \">\", kvFilter.Gt)\n", indent, columnName)
+	fmt.Fprintf(sb, "%s\tcase *%sFilter_Gte:\n", indent, numericType)
+	fmt.Fprintf(sb, "%s\t\tqb.AddMapKeyCondition(\"%s\", filter.KeyValue.Key, \">=\", kvFilter.Gte)\n", indent, columnName)
+	fmt.Fprintf(sb, "%s\tcase *%sFilter_Between:\n", indent, numericType)
+	fmt.Fprintf(sb, "%s\t\tqb.AddMapKeyBetweenCondition(\"%s\", filter.KeyValue.Key, kvFilter.Between.Min, kvFilter.Between.Max)\n", indent, columnName)
+	fmt.Fprintf(sb, "%s\t}\n", indent)
+
+	fmt.Fprintf(sb, "%scase *%s_HasKey:\n", indent, filterType)
+	fmt.Fprintf(sb, "%s\tqb.AddMapContainsCondition(\"%s\", filter.HasKey)\n", indent, columnName)
+
+	fmt.Fprintf(sb, "%scase *%s_NotHasKey:\n", indent, filterType)
+	fmt.Fprintf(sb, "%s\tqb.AddNotMapContainsCondition(\"%s\", filter.NotHasKey)\n", indent, columnName)
+
+	fmt.Fprintf(sb, "%scase *%s_HasAnyKey:\n", indent, filterType)
+	fmt.Fprintf(sb, "%s\tif len(filter.HasAnyKey.Values) > 0 {\n", indent)
+	fmt.Fprintf(sb, "%s\t\tqb.AddMapContainsAnyCondition(\"%s\", filter.HasAnyKey.Values)\n", indent, columnName)
+	fmt.Fprintf(sb, "%s\t}\n", indent)
+
+	fmt.Fprintf(sb, "%scase *%s_HasAllKeys:\n", indent, filterType)
+	fmt.Fprintf(sb, "%s\tif len(filter.HasAllKeys.Values) > 0 {\n", indent)
+	fmt.Fprintf(sb, "%s\t\tfor _, key := range filter.HasAllKeys.Values {\n", indent)
+	fmt.Fprintf(sb, "%s\t\t\tqb.AddMapContainsCondition(\"%s\", key)\n", indent, columnName)
+	fmt.Fprintf(sb, "%s\t\t}\n", indent)
+	fmt.Fprintf(sb, "%s\t}\n", indent)
 }
