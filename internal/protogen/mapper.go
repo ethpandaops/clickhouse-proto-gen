@@ -19,6 +19,9 @@ const (
 	protoString = "string"
 	protoBool   = "bool"
 	protoBytes  = "bytes"
+
+	// ClickHouse type names
+	chTypeString = "String"
 )
 
 // TypeMapper handles conversion of ClickHouse types to Protobuf types
@@ -128,7 +131,7 @@ func (tm *TypeMapper) mapNumericType(baseType string) string {
 func (tm *TypeMapper) mapStringType(baseType string) string {
 	switch baseType {
 	// String types
-	case "String", "FixedString":
+	case chTypeString, "FixedString":
 		return protoString
 
 	// Date types (as strings for readability)
@@ -368,15 +371,78 @@ func (tm *TypeMapper) ConvertColumn(column *clickhouse.Column) (*ProtoField, err
 	return field, nil
 }
 
-// GetFilterTypeForColumn returns the appropriate filter type for a column based on its type and nullability
-func (tm *TypeMapper) GetFilterTypeForColumn(column *clickhouse.Column) string {
+// parseMapType parses a Map(K, V) type string and returns the key and value types
+func (tm *TypeMapper) parseMapType(mapType string) (keyType, valueType string) {
+	// Check if it starts with Map(
+	if !strings.HasPrefix(mapType, "Map(") || !strings.HasSuffix(mapType, ")") {
+		return "", ""
+	}
+
+	// Extract the inner types
+	inner := mapType[4 : len(mapType)-1] // Remove "Map(" and ")"
+
+	// Handle nested types by counting parentheses
+	parenCount := 0
+	commaPos := -1
+
+	for i, ch := range inner {
+		switch ch {
+		case '(':
+			parenCount++
+		case ')':
+			parenCount--
+		case ',':
+			if parenCount == 0 && commaPos == -1 {
+				commaPos = i
+			}
+		}
+	}
+
+	if commaPos == -1 {
+		return "", ""
+	}
+
+	keyType = strings.TrimSpace(inner[:commaPos])
+	valueType = strings.TrimSpace(inner[commaPos+1:])
+
+	// Remove Nullable wrapper if present for the value type
+	if strings.HasPrefix(valueType, "Nullable(") && strings.HasSuffix(valueType, ")") {
+		valueType = valueType[9 : len(valueType)-1]
+	}
+
+	return keyType, valueType
+}
+
+// getMapFilterType returns the filter type for Map columns
+func (tm *TypeMapper) getMapFilterType(columnType string) string {
+	keyType, valueType := tm.parseMapType(columnType)
+	if keyType == "" || valueType == "" {
+		return "" // Invalid map type
+	}
+
+	// Currently supporting common combinations with String keys
+	if keyType == "String" {
+		switch valueType {
+		case "String":
+			return "MapStringStringFilter"
+		case "UInt32", "UInt8", "UInt16":
+			return "MapStringUInt32Filter"
+		case "UInt64":
+			return "MapStringUInt64Filter"
+		case "Int32", "Int8", "Int16":
+			return "MapStringInt32Filter"
+		case "Int64":
+			return "MapStringInt64Filter"
+		}
+	}
+	// Unsupported Map combination
+	return ""
+}
+
+// getScalarFilterType returns the filter type for scalar (non-Map) columns
+func (tm *TypeMapper) getScalarFilterType(column *clickhouse.Column) string {
 	// Get the base proto type (without wrapper or repeated)
 	protoType := tm.mapBaseType(column.BaseType, column.Type)
-
-	// Arrays don't use filter types
-	if column.IsArray {
-		return ""
-	}
 
 	// Determine the base filter type
 	var baseFilterType string
@@ -404,4 +470,20 @@ func (tm *TypeMapper) GetFilterTypeForColumn(column *clickhouse.Column) string {
 	}
 
 	return baseFilterType
+}
+
+// GetFilterTypeForColumn returns the appropriate filter type for a column based on its type and nullability
+func (tm *TypeMapper) GetFilterTypeForColumn(column *clickhouse.Column) string {
+	// Arrays don't use filter types
+	if column.IsArray {
+		return ""
+	}
+
+	// Check if it's a Map type
+	if column.BaseType == "Map" {
+		return tm.getMapFilterType(column.Type)
+	}
+
+	// Handle scalar types
+	return tm.getScalarFilterType(column)
 }

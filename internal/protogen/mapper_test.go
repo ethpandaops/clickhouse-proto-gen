@@ -531,6 +531,62 @@ func TestTypeMapper_ConvertColumn(t *testing.T) {
 	}
 }
 
+func TestTypeMapper_ParseMapType(t *testing.T) {
+	tm := NewTypeMapper()
+
+	tests := []struct {
+		name          string
+		mapType       string
+		expectedKey   string
+		expectedValue string
+	}{
+		{
+			name:          "Map(String, String)",
+			mapType:       "Map(String, String)",
+			expectedKey:   "String",
+			expectedValue: "String",
+		},
+		{
+			name:          "Map(String, UInt32)",
+			mapType:       "Map(String, UInt32)",
+			expectedKey:   "String",
+			expectedValue: "UInt32",
+		},
+		{
+			name:          "Map(String, Nullable(UInt32))",
+			mapType:       "Map(String, Nullable(UInt32))",
+			expectedKey:   "String",
+			expectedValue: "UInt32",
+		},
+		{
+			name:          "Map(String, Int64)",
+			mapType:       "Map(String, Int64)",
+			expectedKey:   "String",
+			expectedValue: "Int64",
+		},
+		{
+			name:          "Invalid map type",
+			mapType:       "NotAMap(String, String)",
+			expectedKey:   "",
+			expectedValue: "",
+		},
+		{
+			name:          "Map with nested types",
+			mapType:       "Map(String, LowCardinality(String))",
+			expectedKey:   "String",
+			expectedValue: "LowCardinality(String)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			key, value := tm.parseMapType(tt.mapType)
+			assert.Equal(t, tt.expectedKey, key)
+			assert.Equal(t, tt.expectedValue, value)
+		})
+	}
+}
+
 func TestTypeMapper_GetFilterTypeForColumn(t *testing.T) {
 	tm := NewTypeMapper()
 
@@ -606,13 +662,40 @@ func TestTypeMapper_GetFilterTypeForColumn(t *testing.T) {
 			expected: "",
 		},
 		{
-			name: "Map type (uses string filter)",
+			name: "Map(String, String)",
 			column: clickhouse.Column{
 				Name:     "metadata",
 				Type:     "Map(String, String)",
 				BaseType: "Map",
 			},
-			expected: "StringFilter", // Map types are mapped to string and use StringFilter
+			expected: "MapStringStringFilter",
+		},
+		{
+			name: "Map(String, UInt32)",
+			column: clickhouse.Column{
+				Name:     "metrics",
+				Type:     "Map(String, UInt32)",
+				BaseType: "Map",
+			},
+			expected: "MapStringUInt32Filter",
+		},
+		{
+			name: "Map(String, Int64)",
+			column: clickhouse.Column{
+				Name:     "counters",
+				Type:     "Map(String, Int64)",
+				BaseType: "Map",
+			},
+			expected: "MapStringInt64Filter",
+		},
+		{
+			name: "Map(UInt32, String) - unsupported",
+			column: clickhouse.Column{
+				Name:     "reverse_map",
+				Type:     "Map(UInt32, String)",
+				BaseType: "Map",
+			},
+			expected: "", // Unsupported Map type combination
 		},
 	}
 
