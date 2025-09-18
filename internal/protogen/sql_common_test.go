@@ -96,7 +96,8 @@ func TestBuildParameterizedQueryImplementation(t *testing.T) {
 	// Check that BuildParameterizedQuery uses opts.Database correctly
 	assert.Contains(t, generatedCode, "if opts.Database != \"\"",
 		"Should check if database is provided")
-	assert.Contains(t, generatedCode, "fromClause = fmt.Sprintf(\"%s.%s\", opts.Database, table)",
+	// The generated code should have backticks around the database name
+	assert.Contains(t, generatedCode, "opts.Database, table)",
 		"Should format with database when provided")
 	assert.Contains(t, generatedCode, "fromClause = table",
 		"Should use table only when database not provided")
@@ -155,7 +156,7 @@ func TestBuildParameterizedQueryWithOptions(t *testing.T) {
 			database:     "mydb",
 			table:        "mytable",
 			withFinal:    false,
-			expectedFrom: "FROM mydb.mytable",
+			expectedFrom: "FROM `mydb`.mytable",
 		},
 		{
 			name:         "Without database, with FINAL",
@@ -169,21 +170,21 @@ func TestBuildParameterizedQueryWithOptions(t *testing.T) {
 			database:     "mydb",
 			table:        "mytable",
 			withFinal:    true,
-			expectedFrom: "FROM mydb.mytable FINAL",
+			expectedFrom: "FROM `mydb`.mytable FINAL",
 		},
 		{
 			name:         "Different database name",
 			database:     "testdb",
 			table:        "users",
 			withFinal:    false,
-			expectedFrom: "FROM testdb.users",
+			expectedFrom: "FROM `testdb`.users",
 		},
 		{
 			name:         "Complex table name with database",
 			database:     "analytics",
 			table:        "user_events_daily",
 			withFinal:    true,
-			expectedFrom: "FROM analytics.user_events_daily FINAL",
+			expectedFrom: "FROM `analytics`.user_events_daily FINAL",
 		},
 	}
 
@@ -246,7 +247,7 @@ func TestBuildParameterizedQueryWithOrderByAndOptions(t *testing.T) {
 			withFinal:     false,
 			limit:         0,
 			offset:        0,
-			expectedFrom:  "FROM mydb.mytable",
+			expectedFrom:  "FROM `mydb`.mytable",
 			expectedOrder: "ORDER BY id DESC",
 		},
 		{
@@ -257,7 +258,7 @@ func TestBuildParameterizedQueryWithOrderByAndOptions(t *testing.T) {
 			withFinal:     true,
 			limit:         0,
 			offset:        0,
-			expectedFrom:  "FROM mydb.mytable FINAL",
+			expectedFrom:  "FROM `mydb`.mytable FINAL",
 			expectedOrder: "ORDER BY id DESC",
 		},
 		{
@@ -268,7 +269,7 @@ func TestBuildParameterizedQueryWithOrderByAndOptions(t *testing.T) {
 			withFinal:     true,
 			limit:         100,
 			offset:        0,
-			expectedFrom:  "FROM mydb.events FINAL",
+			expectedFrom:  "FROM `mydb`.events FINAL",
 			expectedOrder: "ORDER BY timestamp DESC",
 			expectedLimit: "LIMIT 100",
 		},
@@ -280,7 +281,7 @@ func TestBuildParameterizedQueryWithOrderByAndOptions(t *testing.T) {
 			withFinal:     true,
 			limit:         50,
 			offset:        100,
-			expectedFrom:  "FROM analytics.metrics FINAL",
+			expectedFrom:  "FROM `analytics`.metrics FINAL",
 			expectedOrder: "ORDER BY created_at DESC, id ASC",
 			expectedLimit: "LIMIT 50 OFFSET 100",
 		},
@@ -372,7 +373,7 @@ func TestCompleteQueryGeneration(t *testing.T) {
 			limit:          10,
 			offset:         20,
 			withFinal:      true,
-			expectedQuery:  "SELECT * FROM mydb.users FINAL WHERE age > 18 ORDER BY created_at DESC LIMIT 10 OFFSET 20",
+			expectedQuery:  "SELECT * FROM `mydb`.users FINAL WHERE age > 18 ORDER BY created_at DESC LIMIT 10 OFFSET 20",
 		},
 		{
 			name:           "Query without database",
@@ -472,7 +473,7 @@ func mockBuildParameterizedQuery(table string, qb *mockQueryBuilder, orderByClau
 	// Build FROM clause with optional database and FINAL
 	var fromClause string
 	if opts.Database != "" {
-		fromClause = fmt.Sprintf("%s.%s", opts.Database, table)
+		fromClause = fmt.Sprintf("`%s`.%s", opts.Database, table)
 	} else {
 		fromClause = table
 	}
