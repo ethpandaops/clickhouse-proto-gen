@@ -235,7 +235,7 @@ func (g *Generator) writeServiceDefinitions(sb *strings.Builder, table *clickhou
 	// Add pagination fields (AIP-132 standard)
 	fmt.Fprintf(sb, "\n  // The maximum number of %s to return.\n", table.Name)
 	fmt.Fprintf(sb, "  // If unspecified, at most 100 items will be returned.\n")
-	fmt.Fprintf(sb, "  // The maximum value is 1000; values above 1000 will be coerced to 1000.\n")
+	fmt.Fprintf(sb, "  // The maximum value is %d; values above %d will be coerced to %d.\n", g.config.MaxPageSize, g.config.MaxPageSize, g.config.MaxPageSize)
 	fmt.Fprintf(sb, "  int32 page_size = %d;\n", fieldNumber)
 
 	fieldNumber++
