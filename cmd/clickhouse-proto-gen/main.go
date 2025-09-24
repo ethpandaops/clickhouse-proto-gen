@@ -40,6 +40,7 @@ var (
 	configFile      string
 	verbose         bool
 	debug           bool
+	maxPageSize     int32
 )
 
 func main() {
@@ -84,6 +85,9 @@ func init() {
 	// Logging flags
 	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
 	rootCmd.Flags().BoolVar(&debug, "debug", false, "Enable debug output")
+
+	// Pagination flags
+	rootCmd.Flags().Int32Var(&maxPageSize, "max-page-size", 10000, "Maximum page size for List operations (default: 10000)")
 }
 
 func run(_ *cobra.Command, _ []string) error {
@@ -101,7 +105,7 @@ func run(_ *cobra.Command, _ []string) error {
 	}
 
 	// Merge command-line flags (override config file values)
-	cfg.MergeFlags(dsn, outputDir, pkg, goPackage, tables, includeComments)
+	cfg.MergeFlags(dsn, outputDir, pkg, goPackage, tables, includeComments, maxPageSize)
 
 	// Validate configuration
 	if err := cfg.Validate(); err != nil {

@@ -21,3 +21,7 @@ go_package: github.com/myorg/myapp/gen/clickhousev1
 
 # Include table and column comments in proto files
 include_comments: true
+
+# Maximum page size for List operations (default: 10000)
+# Values above this limit will return an error
+max_page_size: 10000

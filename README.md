@@ -125,6 +125,9 @@ go_package: github.com/myorg/myapp/gen/clickhousev1
 
 # Include ClickHouse comments in proto files
 include_comments: true
+
+# Maximum page size for List operations (default: 10000)
+max_page_size: 10000
 ```
 
 See [config.example.yaml](config.example.yaml) for a complete example with all available options.
@@ -139,6 +142,7 @@ See [config.example.yaml](config.example.yaml) for a complete example with all a
 | `--package` | Proto package name | `clickhouse.v1` |
 | `--go-package` | Go package import path | - |
 | `--include-comments` | Include comments in proto | true |
+| `--max-page-size` | Maximum page size for List operations | 10000 |
 | `--config` | Path to YAML config file | - |
 | `--verbose` | Enable verbose output | false |
 | `--debug` | Enable debug output | false |

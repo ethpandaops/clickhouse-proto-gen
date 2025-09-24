@@ -28,6 +28,7 @@ type Config struct {
 	Package         string   `yaml:"package"`
 	GoPackage       string   `yaml:"go_package"`
 	IncludeComments bool     `yaml:"include_comments"`
+	MaxPageSize     int32    `yaml:"max_page_size"`
 }
 
 // NewConfig creates a new Config instance with default values.
@@ -36,6 +37,7 @@ func NewConfig() *Config {
 		OutputDir:       "./proto",
 		Package:         "clickhouse.v1",
 		IncludeComments: true,
+		MaxPageSize:     10000,
 	}
 }
 
@@ -78,7 +80,7 @@ func (c *Config) Validate() error {
 }
 
 // MergeFlags merges command-line flags into the configuration.
-func (c *Config) MergeFlags(dsn, outputDir, pkg, goPkg, tables string, includeComments bool) {
+func (c *Config) MergeFlags(dsn, outputDir, pkg, goPkg, tables string, includeComments bool, maxPageSize int32) {
 	if dsn != "" {
 		c.DSN = dsn
 	}
@@ -98,4 +100,7 @@ func (c *Config) MergeFlags(dsn, outputDir, pkg, goPkg, tables string, includeCo
 		}
 	}
 	c.IncludeComments = includeComments
+	if maxPageSize > 0 {
+		c.MaxPageSize = maxPageSize
+	}
 }
