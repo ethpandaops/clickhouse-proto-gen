@@ -474,10 +474,9 @@ func BuildOrderByClause(fields []OrderByField) string {
 // validColumnNamePattern is compiled once for performance
 var validColumnNamePattern = regexp.MustCompile("^[a-zA-Z0-9_.]+$")
 
-// isValidColumnName validates column names to prevent SQL injection
+// isValidColumnName validates column names.
 // Only allows alphanumeric characters, underscores, and dots (for nested fields)
 func isValidColumnName(name string) bool {
-	// This is a conservative approach for security
 	return len(name) > 0 && len(name) < 128 && validColumnNamePattern.MatchString(name)
 }
 
@@ -496,12 +495,12 @@ func BuildParameterizedQuery(table string, columns []string, qb *QueryBuilder, o
 	} else {
 		fromClause = table
 	}
-	
+
 	// Add projection if specified
 	if opts.Projection != "" {
 		fromClause = fmt.Sprintf("%s PROJECTION %s", fromClause, opts.Projection)
 	}
-	
+
 	if opts.AddFinal {
 		fromClause += " FINAL"
 	}
@@ -513,14 +512,14 @@ func BuildParameterizedQuery(table string, columns []string, qb *QueryBuilder, o
 
 	escapedColumns := make([]string, 0, len(columns))
 	for _, col := range columns {
-		// Validate column name for SQL injection protection
 		if !isValidColumnName(col) {
 			return SQLQuery{}, fmt.Errorf("invalid column name: %s", col)
 		}
+
 		// Escape column names with backticks if they contain dots (for nested fields)
-		// or if they might be reserved words
+		// or if they might be reserved words.
 		if strings.Contains(col, ".") {
-			// For nested fields like "address.street", escape each part
+			// For nested fields like "abc.xyz", escape each part.
 			parts := strings.Split(col, ".")
 			escapedParts := make([]string, len(parts))
 			for i, part := range parts {
@@ -528,7 +527,6 @@ func BuildParameterizedQuery(table string, columns []string, qb *QueryBuilder, o
 			}
 			escapedColumns = append(escapedColumns, strings.Join(escapedParts, "."))
 		} else {
-			// Simple column name - add backticks for safety
 			escapedColumns = append(escapedColumns, fmt.Sprintf("` + "`" + `%s` + "`" + `", col))
 		}
 	}
