@@ -1,12 +1,15 @@
 package protogen
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
+
+var errEmptyColumnsList = errors.New("columns list cannot be empty")
 
 // TestBuildParameterizedQueryWithDatabaseOption tests the new database-agnostic
 // BuildParameterizedQuery function with the WithDatabase option
@@ -202,8 +205,12 @@ func TestBuildParameterizedQueryWithOptions(t *testing.T) {
 				options = append(options, mockWithFinal())
 			}
 
-			// Build the query using new signature (no database parameter)
-			sql := mockBuildParameterizedQuery(tt.table, qb, "", 0, 0, options...)
+			// Build the query using new signature with columns
+			columns := []string{"id", "name", "created_at"}
+			sql, err := mockBuildParameterizedQuery(tt.table, columns, qb, "", 0, 0, options...)
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
 
 			// Check if the FROM clause is correct
 			if !strings.Contains(sql.Query, tt.expectedFrom) {
@@ -313,8 +320,12 @@ func TestBuildParameterizedQueryWithOrderByAndOptions(t *testing.T) {
 				options = append(options, mockWithFinal())
 			}
 
-			// Build the query using new signature (no database parameter)
-			sql := mockBuildParameterizedQuery(tt.table, qb, tt.orderBy, tt.limit, tt.offset, options...)
+			// Build the query using new signature with columns
+			columns := []string{"id", "name", "created_at"}
+			sql, err := mockBuildParameterizedQuery(tt.table, columns, qb, tt.orderBy, tt.limit, tt.offset, options...)
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
 
 			// Check if the FROM clause is correct
 			if !strings.Contains(sql.Query, tt.expectedFrom) {
@@ -373,7 +384,7 @@ func TestCompleteQueryGeneration(t *testing.T) {
 			limit:          10,
 			offset:         20,
 			withFinal:      true,
-			expectedQuery:  "SELECT * FROM `mydb`.users FINAL WHERE age > 18 ORDER BY created_at DESC LIMIT 10 OFFSET 20",
+			expectedQuery:  "SELECT `id`, `name`, `age`, `email` FROM `mydb`.users FINAL WHERE age > 18 ORDER BY created_at DESC LIMIT 10 OFFSET 20",
 		},
 		{
 			name:           "Query without database",
@@ -384,7 +395,7 @@ func TestCompleteQueryGeneration(t *testing.T) {
 			limit:          100,
 			offset:         0,
 			withFinal:      false,
-			expectedQuery:  "SELECT * FROM events WHERE type = 'click' ORDER BY timestamp LIMIT 100",
+			expectedQuery:  "SELECT `id`, `name`, `age`, `email` FROM events WHERE type = 'click' ORDER BY timestamp LIMIT 100",
 		},
 		{
 			name:           "Minimal query",
@@ -395,7 +406,7 @@ func TestCompleteQueryGeneration(t *testing.T) {
 			limit:          0,
 			offset:         0,
 			withFinal:      false,
-			expectedQuery:  "SELECT * FROM logs",
+			expectedQuery:  "SELECT `id`, `name`, `age`, `email` FROM logs",
 		},
 	}
 
@@ -414,7 +425,11 @@ func TestCompleteQueryGeneration(t *testing.T) {
 			}
 
 			// Build the query
-			sql := mockBuildParameterizedQuery(tt.table, qb, tt.orderBy, tt.limit, tt.offset, options...)
+			columns := []string{"id", "name", "age", "email"}
+			sql, err := mockBuildParameterizedQuery(tt.table, columns, qb, tt.orderBy, tt.limit, tt.offset, options...)
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
 
 			// Check if the complete query matches
 			assert.Equal(t, tt.expectedQuery, sql.Query,
@@ -462,8 +477,8 @@ func mockWithDatabase(database string) mockQueryOption {
 	}
 }
 
-// mockBuildParameterizedQuery simulates the new database-agnostic signature
-func mockBuildParameterizedQuery(table string, qb *mockQueryBuilder, orderByClause string, limit, offset uint32, options ...mockQueryOption) mockSQLQuery {
+// mockBuildParameterizedQuery simulates the database-agnostic signature with explicit columns
+func mockBuildParameterizedQuery(table string, columns []string, qb *mockQueryBuilder, orderByClause string, limit, offset uint32, options ...mockQueryOption) (mockSQLQuery, error) {
 	// Apply options
 	opts := &mockQueryOptions{}
 	for _, opt := range options {
@@ -481,7 +496,19 @@ func mockBuildParameterizedQuery(table string, qb *mockQueryBuilder, orderByClau
 		fromClause += " FINAL"
 	}
 
-	query := "SELECT * FROM " + fromClause
+	// Validate columns
+	if len(columns) == 0 {
+		return mockSQLQuery{}, errEmptyColumnsList
+	}
+
+	// Build column list
+	escapedColumns := make([]string, 0, len(columns))
+	for _, col := range columns {
+		escapedColumns = append(escapedColumns, fmt.Sprintf("`%s`", col))
+	}
+	columnList := strings.Join(escapedColumns, ", ")
+
+	query := fmt.Sprintf("SELECT %s FROM %s", columnList, fromClause)
 
 	// Add WHERE clause
 	query += qb.GetWhereClause()
@@ -500,5 +527,5 @@ func mockBuildParameterizedQuery(table string, qb *mockQueryBuilder, orderByClau
 	return mockSQLQuery{
 		Query: query,
 		Args:  qb.GetArgs(),
-	}
+	}, nil
 }

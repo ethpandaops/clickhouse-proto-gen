@@ -471,8 +471,18 @@ func BuildOrderByClause(fields []OrderByField) string {
 	return " ORDER BY " + strings.Join(parts, ", ")
 }
 
-// BuildParameterizedQuery constructs the final parameterized query with optional ordering
-func BuildParameterizedQuery(table string, qb *QueryBuilder, orderByClause string, limit, offset uint32, options ...QueryOption) SQLQuery {
+// validColumnNamePattern is compiled once for performance
+var validColumnNamePattern = regexp.MustCompile("^[a-zA-Z0-9_.]+$")
+
+// isValidColumnName validates column names to prevent SQL injection
+// Only allows alphanumeric characters, underscores, and dots (for nested fields)
+func isValidColumnName(name string) bool {
+	// This is a conservative approach for security
+	return len(name) > 0 && len(name) < 128 && validColumnNamePattern.MatchString(name)
+}
+
+// BuildParameterizedQuery constructs the final parameterized query with explicit column selection
+func BuildParameterizedQuery(table string, columns []string, qb *QueryBuilder, orderByClause string, limit, offset uint32, options ...QueryOption) (SQLQuery, error) {
 	// Apply options
 	opts := &QueryOptions{}
 	for _, opt := range options {
@@ -496,7 +506,35 @@ func BuildParameterizedQuery(table string, qb *QueryBuilder, orderByClause strin
 		fromClause += " FINAL"
 	}
 
-	query := fmt.Sprintf("SELECT * FROM %s", fromClause)
+	// Validate and build column list
+	if len(columns) == 0 {
+		return SQLQuery{}, fmt.Errorf("columns list cannot be empty")
+	}
+
+	escapedColumns := make([]string, 0, len(columns))
+	for _, col := range columns {
+		// Validate column name for SQL injection protection
+		if !isValidColumnName(col) {
+			return SQLQuery{}, fmt.Errorf("invalid column name: %s", col)
+		}
+		// Escape column names with backticks if they contain dots (for nested fields)
+		// or if they might be reserved words
+		if strings.Contains(col, ".") {
+			// For nested fields like "address.street", escape each part
+			parts := strings.Split(col, ".")
+			escapedParts := make([]string, len(parts))
+			for i, part := range parts {
+				escapedParts[i] = fmt.Sprintf("` + "`" + `%s` + "`" + `", part)
+			}
+			escapedColumns = append(escapedColumns, strings.Join(escapedParts, "."))
+		} else {
+			// Simple column name - add backticks for safety
+			escapedColumns = append(escapedColumns, fmt.Sprintf("` + "`" + `%s` + "`" + `", col))
+		}
+	}
+
+	columnList := strings.Join(escapedColumns, ", ")
+	query := fmt.Sprintf("SELECT %s FROM %s", columnList, fromClause)
 
 	// Add WHERE clause
 	query += qb.GetWhereClause()
@@ -515,7 +553,7 @@ func BuildParameterizedQuery(table string, qb *QueryBuilder, orderByClause strin
 	return SQLQuery{
 		Query: query,
 		Args:  qb.GetArgs(),
-	}
+	}, nil
 }
 `)
 }
