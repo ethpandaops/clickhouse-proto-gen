@@ -189,7 +189,17 @@ func (g *Generator) writeSQLBuilderFunction(sb *strings.Builder, table *clickhou
 	}
 	fmt.Fprintf(sb, "\t}\n\n")
 
-	fmt.Fprintf(sb, "\treturn BuildParameterizedQuery(\"%s\", qb, orderByClause, limit, offset, options...), nil\n", table.Name)
+	// Build column list for explicit selection
+	fmt.Fprintf(sb, "\t// Build column list\n")
+	fmt.Fprintf(sb, "\tcolumns := []string{")
+	for i, col := range table.Columns {
+		if i > 0 {
+			fmt.Fprintf(sb, ", ")
+		}
+		fmt.Fprintf(sb, "\"%s\"", col.Name)
+	}
+	fmt.Fprintf(sb, "}\n\n")
+	fmt.Fprintf(sb, "\treturn BuildParameterizedQuery(\"%s\", columns, qb, orderByClause, limit, offset, options...)\n", table.Name)
 	fmt.Fprintf(sb, "}\n")
 }
 
@@ -258,8 +268,18 @@ func (g *Generator) writeGetSQLBuilderFunction(sb *strings.Builder, table *click
 		// No sorting key, generate simple query without primary key
 		fmt.Fprintf(sb, "\t// Table has no primary key\n")
 		fmt.Fprintf(sb, "\tqb := NewQueryBuilder()\n\n")
+		// Build column list for explicit selection
+		fmt.Fprintf(sb, "\t// Build column list\n")
+		fmt.Fprintf(sb, "\tcolumns := []string{")
+		for i, col := range table.Columns {
+			if i > 0 {
+				fmt.Fprintf(sb, ", ")
+			}
+			fmt.Fprintf(sb, "\"%s\"", col.Name)
+		}
+		fmt.Fprintf(sb, "}\n\n")
 		fmt.Fprintf(sb, "\t// Return single record\n")
-		fmt.Fprintf(sb, "\treturn BuildParameterizedQuery(\"%s\", qb, \"\", 1, 0, options...), nil\n", table.Name)
+		fmt.Fprintf(sb, "\treturn BuildParameterizedQuery(\"%s\", columns, qb, \"\", 1, 0, options...)\n", table.Name)
 		fmt.Fprintf(sb, "}\n")
 		return
 	}
@@ -313,9 +333,20 @@ func (g *Generator) writeGetSQLBuilderFunction(sb *strings.Builder, table *click
 	}
 	fmt.Fprintf(sb, "\"\n\n")
 
+	// Build column list for explicit selection
+	fmt.Fprintf(sb, "\t// Build column list\n")
+	fmt.Fprintf(sb, "\tcolumns := []string{")
+	for i, col := range table.Columns {
+		if i > 0 {
+			fmt.Fprintf(sb, ", ")
+		}
+		fmt.Fprintf(sb, "\"%s\"", col.Name)
+	}
+	fmt.Fprintf(sb, "}\n\n")
+
 	// Return query with LIMIT 1
 	fmt.Fprintf(sb, "\t// Return single record\n")
-	fmt.Fprintf(sb, "\treturn BuildParameterizedQuery(\"%s\", qb, orderByClause, 1, 0, options...), nil\n", table.Name)
+	fmt.Fprintf(sb, "\treturn BuildParameterizedQuery(\"%s\", columns, qb, orderByClause, 1, 0, options...)\n", table.Name)
 	fmt.Fprintf(sb, "}\n")
 }
 
