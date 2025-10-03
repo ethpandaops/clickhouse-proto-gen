@@ -385,6 +385,9 @@ func (g *Generator) writeFilterCondition(sb *strings.Builder, columnName, fieldN
 		return
 	}
 
+	// Check if this is a DateTime column
+	isDateTime := column.BaseType == "DateTime" || column.BaseType == "DateTime64"
+
 	indent := "\t"
 	if !isPrimary {
 		// Optional field, check for nil
@@ -395,7 +398,12 @@ func (g *Generator) writeFilterCondition(sb *strings.Builder, columnName, fieldN
 	fmt.Fprintf(sb, "%sswitch filter := req.%s.Filter.(type) {\n", indent, pascalFieldName)
 
 	// Write filter cases based on type
-	g.writeFilterCases(sb, columnName, filterType, indent)
+	if isDateTime {
+		// For DateTime columns, we need special handling
+		g.writeDateTimeFilterCases(sb, columnName, filterType, indent)
+	} else {
+		g.writeFilterCases(sb, columnName, filterType, indent)
+	}
 
 	// Add default case
 	fmt.Fprintf(sb, "%sdefault:\n", indent)
@@ -687,6 +695,98 @@ func (g *Generator) writeMapStringStringFilterCases(sb *strings.Builder, columnN
 	fmt.Fprintf(sb, "%s\t\t\tqb.AddMapContainsCondition(\"%s\", key)\n", indent, columnName)
 	fmt.Fprintf(sb, "%s\t\t}\n", indent)
 	fmt.Fprintf(sb, "%s\t}\n", indent)
+}
+
+// writeDateTimeFilterCases generates switch cases for DateTime filters with fromUnixTimestamp conversion
+func (g *Generator) writeDateTimeFilterCases(sb *strings.Builder, columnName, filterType, indent string) {
+	// DateTime fields are stored as UInt32 (Unix timestamps) in protobuf
+	// but need to be converted to DateTime in ClickHouse queries
+	// We wrap the column with fromUnixTimestamp() function
+
+	switch filterType {
+	case "UInt32Filter":
+		// Standard DateTime (stored as UInt32)
+		// Wrap values in DateTimeValue to trigger fromUnixTimestamp conversion
+
+		fmt.Fprintf(sb, "%scase *UInt32Filter_Eq:\n", indent)
+		fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \"=\", DateTimeValue{filter.Eq})\n", indent, columnName)
+
+		fmt.Fprintf(sb, "%scase *UInt32Filter_Ne:\n", indent)
+		fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \"!=\", DateTimeValue{filter.Ne})\n", indent, columnName)
+
+		fmt.Fprintf(sb, "%scase *UInt32Filter_Lt:\n", indent)
+		fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \"<\", DateTimeValue{filter.Lt})\n", indent, columnName)
+
+		fmt.Fprintf(sb, "%scase *UInt32Filter_Lte:\n", indent)
+		fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \"<=\", DateTimeValue{filter.Lte})\n", indent, columnName)
+
+		fmt.Fprintf(sb, "%scase *UInt32Filter_Gt:\n", indent)
+		fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \">\", DateTimeValue{filter.Gt})\n", indent, columnName)
+
+		fmt.Fprintf(sb, "%scase *UInt32Filter_Gte:\n", indent)
+		fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \">=\", DateTimeValue{filter.Gte})\n", indent, columnName)
+
+		fmt.Fprintf(sb, "%scase *UInt32Filter_Between:\n", indent)
+		fmt.Fprintf(sb, "%s\tqb.AddBetweenCondition(\"%s\", DateTimeValue{filter.Between.Min}, DateTimeValue{filter.Between.Max.GetValue()})\n", indent, columnName)
+
+		fmt.Fprintf(sb, "%scase *UInt32Filter_In:\n", indent)
+		fmt.Fprintf(sb, "%s\tif len(filter.In.Values) > 0 {\n", indent)
+		fmt.Fprintf(sb, "%s\t\tconverted := make([]interface{}, len(filter.In.Values))\n", indent)
+		fmt.Fprintf(sb, "%s\t\tfor i, v := range filter.In.Values {\n", indent)
+		fmt.Fprintf(sb, "%s\t\t\tconverted[i] = DateTimeValue{v}\n", indent)
+		fmt.Fprintf(sb, "%s\t\t}\n", indent)
+		fmt.Fprintf(sb, "%s\t\tqb.AddInCondition(\"%s\", converted)\n", indent, columnName)
+		fmt.Fprintf(sb, "%s\t}\n", indent)
+
+		fmt.Fprintf(sb, "%scase *UInt32Filter_NotIn:\n", indent)
+		fmt.Fprintf(sb, "%s\tif len(filter.NotIn.Values) > 0 {\n", indent)
+		fmt.Fprintf(sb, "%s\t\tconverted := make([]interface{}, len(filter.NotIn.Values))\n", indent)
+		fmt.Fprintf(sb, "%s\t\tfor i, v := range filter.NotIn.Values {\n", indent)
+		fmt.Fprintf(sb, "%s\t\t\tconverted[i] = DateTimeValue{v}\n", indent)
+		fmt.Fprintf(sb, "%s\t\t}\n", indent)
+		fmt.Fprintf(sb, "%s\t\tqb.AddNotInCondition(\"%s\", converted)\n", indent, columnName)
+		fmt.Fprintf(sb, "%s\t}\n", indent)
+	case "UInt64Filter":
+		// DateTime64 (stored as UInt64)
+		fmt.Fprintf(sb, "%scase *UInt64Filter_Eq:\n", indent)
+		fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \"=\", DateTime64Value{filter.Eq})\n", indent, columnName)
+
+		fmt.Fprintf(sb, "%scase *UInt64Filter_Ne:\n", indent)
+		fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \"!=\", DateTime64Value{filter.Ne})\n", indent, columnName)
+
+		fmt.Fprintf(sb, "%scase *UInt64Filter_Lt:\n", indent)
+		fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \"<\", DateTime64Value{filter.Lt})\n", indent, columnName)
+
+		fmt.Fprintf(sb, "%scase *UInt64Filter_Lte:\n", indent)
+		fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \"<=\", DateTime64Value{filter.Lte})\n", indent, columnName)
+
+		fmt.Fprintf(sb, "%scase *UInt64Filter_Gt:\n", indent)
+		fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \">\", DateTime64Value{filter.Gt})\n", indent, columnName)
+
+		fmt.Fprintf(sb, "%scase *UInt64Filter_Gte:\n", indent)
+		fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \">=\", DateTime64Value{filter.Gte})\n", indent, columnName)
+
+		fmt.Fprintf(sb, "%scase *UInt64Filter_Between:\n", indent)
+		fmt.Fprintf(sb, "%s\tqb.AddBetweenCondition(\"%s\", DateTime64Value{filter.Between.Min}, DateTime64Value{filter.Between.Max.GetValue()})\n", indent, columnName)
+
+		fmt.Fprintf(sb, "%scase *UInt64Filter_In:\n", indent)
+		fmt.Fprintf(sb, "%s\tif len(filter.In.Values) > 0 {\n", indent)
+		fmt.Fprintf(sb, "%s\t\tconverted := make([]interface{}, len(filter.In.Values))\n", indent)
+		fmt.Fprintf(sb, "%s\t\tfor i, v := range filter.In.Values {\n", indent)
+		fmt.Fprintf(sb, "%s\t\t\tconverted[i] = DateTime64Value{v}\n", indent)
+		fmt.Fprintf(sb, "%s\t\t}\n", indent)
+		fmt.Fprintf(sb, "%s\t\tqb.AddInCondition(\"%s\", converted)\n", indent, columnName)
+		fmt.Fprintf(sb, "%s\t}\n", indent)
+
+		fmt.Fprintf(sb, "%scase *UInt64Filter_NotIn:\n", indent)
+		fmt.Fprintf(sb, "%s\tif len(filter.NotIn.Values) > 0 {\n", indent)
+		fmt.Fprintf(sb, "%s\t\tconverted := make([]interface{}, len(filter.NotIn.Values))\n", indent)
+		fmt.Fprintf(sb, "%s\t\tfor i, v := range filter.NotIn.Values {\n", indent)
+		fmt.Fprintf(sb, "%s\t\t\tconverted[i] = DateTime64Value{v}\n", indent)
+		fmt.Fprintf(sb, "%s\t\t}\n", indent)
+		fmt.Fprintf(sb, "%s\t\tqb.AddNotInCondition(\"%s\", converted)\n", indent, columnName)
+		fmt.Fprintf(sb, "%s\t}\n", indent)
+	}
 }
 
 // writeMapStringNumericFilterCases generates switch cases for Map(String, Numeric) filters
