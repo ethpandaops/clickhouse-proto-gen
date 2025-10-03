@@ -529,3 +529,57 @@ func mockBuildParameterizedQuery(table string, columns []string, qb *mockQueryBu
 		Args:  qb.GetArgs(),
 	}, nil
 }
+
+// TestGeneratedDateTimeHandling tests that the generated SQL common code handles DateTime correctly
+func TestGeneratedDateTimeHandling(t *testing.T) {
+	// Create a generator instance
+	g := &Generator{}
+	sb := &strings.Builder{}
+
+	// Write the common SQL functions
+	g.writeCommonSQLFunctions(sb)
+
+	generatedCode := sb.String()
+
+	// Check that the AddCondition method handles DateTimeValue
+	if !strings.Contains(generatedCode, "case DateTimeValue:") {
+		t.Error("Generated AddCondition should handle DateTimeValue type")
+	}
+
+	if !strings.Contains(generatedCode, "fromUnixTimestamp(") {
+		t.Error("Generated code should use fromUnixTimestamp for DateTime values")
+	}
+
+	// Check that DateTime64Value is also handled
+	if !strings.Contains(generatedCode, "case DateTime64Value:") {
+		t.Error("Generated AddCondition should handle DateTime64Value type")
+	}
+
+	if !strings.Contains(generatedCode, "fromUnixTimestamp64Micro(") {
+		t.Error("Generated code should use fromUnixTimestamp64Micro for DateTime64 values")
+	}
+}
+
+// TestWriteDateTimeFilterCases tests that writeDateTimeFilterCases generates correct code
+func TestWriteDateTimeFilterCases(t *testing.T) {
+	g := &Generator{}
+	sb := &strings.Builder{}
+
+	// Generate DateTime filter cases
+	g.writeDateTimeFilterCases(sb, "test_column", "UInt32Filter", "\t")
+
+	generatedCode := sb.String()
+
+	// Check that it generates DateTimeValue wrapper usage
+	if !strings.Contains(generatedCode, "DateTimeValue{") {
+		t.Error("DateTime filter cases should use DateTimeValue wrapper")
+	}
+
+	// Check all the filter operations are present
+	expectedOps := []string{"_Eq", "_Ne", "_Lt", "_Lte", "_Gt", "_Gte", "_Between", "_In", "_NotIn"}
+	for _, op := range expectedOps {
+		if !strings.Contains(generatedCode, "UInt32Filter"+op) {
+			t.Errorf("Missing filter operation: %s", op)
+		}
+	}
+}
