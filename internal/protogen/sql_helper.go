@@ -577,7 +577,7 @@ func (g *Generator) writeNumericFilterCases(sb *strings.Builder, columnName, ind
 	fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \">=\", filter.Gte)\n", indent, columnName)
 
 	fmt.Fprintf(sb, "%scase *%sFilter_Between:\n", indent, typePrefix)
-	fmt.Fprintf(sb, "%s\tqb.AddBetweenCondition(\"%s\", filter.Between.Min, filter.Between.Max)\n", indent, columnName)
+	fmt.Fprintf(sb, "%s\tqb.AddBetweenCondition(\"%s\", filter.Between.Min, filter.Between.Max.GetValue())\n", indent, columnName)
 
 	fmt.Fprintf(sb, "%scase *%sFilter_In:\n", indent, typePrefix)
 	fmt.Fprintf(sb, "%s\tif len(filter.In.Values) > 0 {\n", indent)
@@ -615,7 +615,7 @@ func (g *Generator) writeNullableNumericFilterCases(sb *strings.Builder, columnN
 	fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \">=\", filter.Gte)\n", indent, columnName)
 
 	fmt.Fprintf(sb, "%scase *%sFilter_Between:\n", indent, typePrefix)
-	fmt.Fprintf(sb, "%s\tqb.AddBetweenCondition(\"%s\", filter.Between.Min, filter.Between.Max)\n", indent, columnName)
+	fmt.Fprintf(sb, "%s\tqb.AddBetweenCondition(\"%s\", filter.Between.Min, filter.Between.Max.GetValue())\n", indent, columnName)
 
 	fmt.Fprintf(sb, "%scase *%sFilter_In:\n", indent, typePrefix)
 	fmt.Fprintf(sb, "%s\tif len(filter.In.Values) > 0 {\n", indent)
