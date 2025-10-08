@@ -815,11 +815,15 @@ func TestGenerator_GenerateProtoWithAPIAnnotations(t *testing.T) {
 	assert.Contains(t, fctContentStr, "get: \"/api/v1/fct_block\"")
 
 	// Verify pipe-separated comment format for service
-	assert.Contains(t, fctContentStr, " | Retrieve a paginated list of")
+	assert.Contains(t, fctContentStr, " | Retrieve paginated results with optional filtering")
 
 	// Verify field_behavior annotations
 	assert.Contains(t, fctContentStr, "[(google.api.field_behavior) = REQUIRED]")
 	assert.Contains(t, fctContentStr, "[(google.api.field_behavior) = OPTIONAL]")
+
+	// Verify column comments are included in filter field descriptions
+	assert.Contains(t, fctContentStr, "Filter by slot - Slot number (PRIMARY KEY - required)")
+	assert.Contains(t, fctContentStr, "Filter by proposer_index - Proposer validator index (optional)")
 
 	// Read and verify beacon_api_eth_v1_events_block.proto
 	beaconProtoPath := filepath.Join(tempDir, "beacon_api_eth_v1_events_block.proto")
