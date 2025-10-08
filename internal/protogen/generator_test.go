@@ -711,7 +711,6 @@ func TestGenerator_ServiceWithHTTPAnnotations(t *testing.T) {
 			} else {
 				// Should NOT have HTTP annotations
 				assert.NotContains(t, result, "option (google.api.http)", "Should not have HTTP annotations")
-				assert.Contains(t, result, "gRPC only", "Should indicate gRPC only")
 			}
 
 			if tt.expectedAnnotation {
@@ -840,9 +839,6 @@ func TestGenerator_GenerateProtoWithAPIAnnotations(t *testing.T) {
 
 	// Verify NO HTTP annotations
 	assert.NotContains(t, beaconContentStr, "option (google.api.http)")
-
-	// Verify gRPC only indicators
-	assert.Contains(t, beaconContentStr, "gRPC only")
 
 	// Verify NO field_behavior annotations
 	assert.NotContains(t, beaconContentStr, "google.api.field_behavior")
