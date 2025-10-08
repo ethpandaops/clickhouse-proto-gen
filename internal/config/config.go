@@ -29,15 +29,22 @@ type Config struct {
 	GoPackage       string   `yaml:"go_package"`
 	IncludeComments bool     `yaml:"include_comments"`
 	MaxPageSize     int32    `yaml:"max_page_size"`
+	// API generation options
+	APIBasePath      string   `yaml:"api_base_path"`      // e.g., "/api/v1"
+	EnableAPI        bool     `yaml:"enable_api"`         // Enable HTTP annotations
+	APITablePrefixes []string `yaml:"api_table_prefixes"` // Only generate APIs for tables matching these prefixes
 }
 
 // NewConfig creates a new Config instance with default values.
 func NewConfig() *Config {
 	return &Config{
-		OutputDir:       "./proto",
-		Package:         "clickhouse.v1",
-		IncludeComments: true,
-		MaxPageSize:     10000,
+		OutputDir:        "./proto",
+		Package:          "clickhouse.v1",
+		IncludeComments:  true,
+		MaxPageSize:      10000,
+		APIBasePath:      "/api/v1",
+		EnableAPI:        false,
+		APITablePrefixes: []string{},
 	}
 }
 
@@ -80,7 +87,7 @@ func (c *Config) Validate() error {
 }
 
 // MergeFlags merges command-line flags into the configuration.
-func (c *Config) MergeFlags(dsn, outputDir, pkg, goPkg, tables string, includeComments bool, maxPageSize int32) {
+func (c *Config) MergeFlags(dsn, outputDir, pkg, goPkg, tables string, includeComments bool, maxPageSize int32, enableAPI bool, apiBasePath, apiTablePrefixes string) {
 	if dsn != "" {
 		c.DSN = dsn
 	}
@@ -102,5 +109,17 @@ func (c *Config) MergeFlags(dsn, outputDir, pkg, goPkg, tables string, includeCo
 	c.IncludeComments = includeComments
 	if maxPageSize > 0 {
 		c.MaxPageSize = maxPageSize
+	}
+
+	// API generation flags
+	c.EnableAPI = enableAPI
+	if apiBasePath != "" {
+		c.APIBasePath = apiBasePath
+	}
+	if apiTablePrefixes != "" {
+		c.APITablePrefixes = strings.Split(apiTablePrefixes, ",")
+		for i := range c.APITablePrefixes {
+			c.APITablePrefixes[i] = strings.TrimSpace(c.APITablePrefixes[i])
+		}
 	}
 }

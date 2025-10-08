@@ -252,15 +252,18 @@ func TestConfig_LoadFromFile_FileNotExists(t *testing.T) {
 
 func TestConfig_MergeFlags(t *testing.T) {
 	tests := []struct {
-		name            string
-		initial         Config
-		dsn             string
-		outputDir       string
-		pkg             string
-		goPkg           string
-		tables          string
-		includeComments bool
-		expected        Config
+		name             string
+		initial          Config
+		dsn              string
+		outputDir        string
+		pkg              string
+		goPkg            string
+		tables           string
+		includeComments  bool
+		enableAPI        bool
+		apiBasePath      string
+		apiTablePrefixes string
+		expected         Config
 	}{
 		{
 			name: "Merge all flags",
@@ -272,12 +275,15 @@ func TestConfig_MergeFlags(t *testing.T) {
 				Tables:          []string{"old_table"},
 				IncludeComments: false,
 			},
-			dsn:             "clickhouse://new:9000/newdb",
-			outputDir:       "./new",
-			pkg:             "new.v1",
-			goPkg:           "github.com/new/proto",
-			tables:          "table1,table2,table3",
-			includeComments: true,
+			dsn:              "clickhouse://new:9000/newdb",
+			outputDir:        "./new",
+			pkg:              "new.v1",
+			goPkg:            "github.com/new/proto",
+			tables:           "table1,table2,table3",
+			includeComments:  true,
+			enableAPI:        false,
+			apiBasePath:      "",
+			apiTablePrefixes: "",
 			expected: Config{
 				DSN:             "clickhouse://new:9000/newdb",
 				OutputDir:       "./new",
@@ -297,12 +303,15 @@ func TestConfig_MergeFlags(t *testing.T) {
 				Tables:          []string{"old_table"},
 				IncludeComments: true,
 			},
-			dsn:             "", // Keep old
-			outputDir:       "./partial",
-			pkg:             "", // Keep old
-			goPkg:           "github.com/partial/proto",
-			tables:          "", // Keep old
-			includeComments: false,
+			dsn:              "", // Keep old
+			outputDir:        "./partial",
+			pkg:              "", // Keep old
+			goPkg:            "github.com/partial/proto",
+			tables:           "", // Keep old
+			includeComments:  false,
+			enableAPI:        false,
+			apiBasePath:      "",
+			apiTablePrefixes: "",
 			expected: Config{
 				DSN:             "clickhouse://old:9000/olddb",
 				OutputDir:       "./partial",
@@ -317,12 +326,15 @@ func TestConfig_MergeFlags(t *testing.T) {
 			initial: Config{
 				Tables: []string{"old"},
 			},
-			dsn:             "",
-			outputDir:       "",
-			pkg:             "",
-			goPkg:           "",
-			tables:          " table1 , table2 , table3 ",
-			includeComments: true,
+			dsn:              "",
+			outputDir:        "",
+			pkg:              "",
+			goPkg:            "",
+			tables:           " table1 , table2 , table3 ",
+			includeComments:  true,
+			enableAPI:        false,
+			apiBasePath:      "",
+			apiTablePrefixes: "",
 			expected: Config{
 				Tables:          []string{"table1", "table2", "table3"},
 				IncludeComments: true,
@@ -338,12 +350,15 @@ func TestConfig_MergeFlags(t *testing.T) {
 				Tables:          []string{"users"},
 				IncludeComments: true,
 			},
-			dsn:             "",
-			outputDir:       "",
-			pkg:             "",
-			goPkg:           "",
-			tables:          "",
-			includeComments: true,
+			dsn:              "",
+			outputDir:        "",
+			pkg:              "",
+			goPkg:            "",
+			tables:           "",
+			includeComments:  true,
+			enableAPI:        false,
+			apiBasePath:      "",
+			apiTablePrefixes: "",
 			expected: Config{
 				DSN:             "clickhouse://localhost:9000/test",
 				OutputDir:       "./proto",
@@ -358,15 +373,166 @@ func TestConfig_MergeFlags(t *testing.T) {
 			initial: Config{
 				Tables: []string{"old"},
 			},
-			dsn:             "",
-			outputDir:       "",
-			pkg:             "",
-			goPkg:           "",
-			tables:          "db1.users, db2.orders, db3.products",
-			includeComments: false,
+			dsn:              "",
+			outputDir:        "",
+			pkg:              "",
+			goPkg:            "",
+			tables:           "db1.users, db2.orders, db3.products",
+			includeComments:  false,
+			enableAPI:        false,
+			apiBasePath:      "",
+			apiTablePrefixes: "",
 			expected: Config{
 				Tables:          []string{"db1.users", "db2.orders", "db3.products"},
 				IncludeComments: false,
+			},
+		},
+		{
+			name: "Enable API with defaults from NewConfig",
+			initial: func() Config {
+				cfg := NewConfig()
+				cfg.DSN = "clickhouse://localhost:9000/test"
+				cfg.OutputDir = "./proto"
+				return *cfg
+			}(),
+			dsn:              "",
+			outputDir:        "",
+			pkg:              "",
+			goPkg:            "",
+			tables:           "",
+			includeComments:  true, // Preserve from initial
+			enableAPI:        true,
+			apiBasePath:      "",
+			apiTablePrefixes: "",
+			expected: Config{
+				DSN:              "clickhouse://localhost:9000/test",
+				OutputDir:        "./proto",
+				Package:          "clickhouse.v1",
+				IncludeComments:  true,
+				MaxPageSize:      10000,
+				EnableAPI:        true,
+				APIBasePath:      "/api/v1", // Default from NewConfig()
+				APITablePrefixes: []string{},
+			},
+		},
+		{
+			name: "Enable API with custom base path",
+			initial: Config{
+				DSN:       "clickhouse://localhost:9000/test",
+				OutputDir: "./proto",
+			},
+			dsn:              "",
+			outputDir:        "",
+			pkg:              "",
+			goPkg:            "",
+			tables:           "",
+			includeComments:  false,
+			enableAPI:        true,
+			apiBasePath:      "/api/v2",
+			apiTablePrefixes: "",
+			expected: Config{
+				DSN:         "clickhouse://localhost:9000/test",
+				OutputDir:   "./proto",
+				EnableAPI:   true,
+				APIBasePath: "/api/v2",
+			},
+		},
+		{
+			name: "Enable API with table prefixes",
+			initial: Config{
+				DSN:       "clickhouse://localhost:9000/test",
+				OutputDir: "./proto",
+			},
+			dsn:              "",
+			outputDir:        "",
+			pkg:              "",
+			goPkg:            "",
+			tables:           "",
+			includeComments:  false,
+			enableAPI:        true,
+			apiBasePath:      "/api/v1",
+			apiTablePrefixes: "fct_,dim_",
+			expected: Config{
+				DSN:              "clickhouse://localhost:9000/test",
+				OutputDir:        "./proto",
+				EnableAPI:        true,
+				APIBasePath:      "/api/v1",
+				APITablePrefixes: []string{"fct_", "dim_"},
+			},
+		},
+		{
+			name: "Enable API with table prefixes and spaces",
+			initial: Config{
+				DSN:       "clickhouse://localhost:9000/test",
+				OutputDir: "./proto",
+			},
+			dsn:              "",
+			outputDir:        "",
+			pkg:              "",
+			goPkg:            "",
+			tables:           "",
+			includeComments:  false,
+			enableAPI:        true,
+			apiBasePath:      "/api/v1",
+			apiTablePrefixes: " fct_ , dim_ , stg_ ",
+			expected: Config{
+				DSN:              "clickhouse://localhost:9000/test",
+				OutputDir:        "./proto",
+				EnableAPI:        true,
+				APIBasePath:      "/api/v1",
+				APITablePrefixes: []string{"fct_", "dim_", "stg_"},
+			},
+		},
+		{
+			name: "Disable API (default)",
+			initial: Config{
+				DSN:              "clickhouse://localhost:9000/test",
+				OutputDir:        "./proto",
+				EnableAPI:        true, // Start with API enabled
+				APIBasePath:      "/api/v1",
+				APITablePrefixes: []string{"fct_"},
+			},
+			dsn:              "",
+			outputDir:        "",
+			pkg:              "",
+			goPkg:            "",
+			tables:           "",
+			includeComments:  false,
+			enableAPI:        false,
+			apiBasePath:      "",
+			apiTablePrefixes: "",
+			expected: Config{
+				DSN:              "clickhouse://localhost:9000/test",
+				OutputDir:        "./proto",
+				EnableAPI:        false, // Should be disabled
+				APIBasePath:      "/api/v1",
+				APITablePrefixes: []string{"fct_"},
+			},
+		},
+		{
+			name: "Override existing API settings",
+			initial: Config{
+				DSN:              "clickhouse://localhost:9000/test",
+				OutputDir:        "./proto",
+				EnableAPI:        false,
+				APIBasePath:      "/old/path",
+				APITablePrefixes: []string{"old_"},
+			},
+			dsn:              "",
+			outputDir:        "",
+			pkg:              "",
+			goPkg:            "",
+			tables:           "",
+			includeComments:  false,
+			enableAPI:        true,
+			apiBasePath:      "/new/path",
+			apiTablePrefixes: "new_,modern_",
+			expected: Config{
+				DSN:              "clickhouse://localhost:9000/test",
+				OutputDir:        "./proto",
+				EnableAPI:        true,
+				APIBasePath:      "/new/path",
+				APITablePrefixes: []string{"new_", "modern_"},
 			},
 		},
 	}
@@ -374,7 +540,7 @@ func TestConfig_MergeFlags(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := tt.initial
-			cfg.MergeFlags(tt.dsn, tt.outputDir, tt.pkg, tt.goPkg, tt.tables, tt.includeComments, 0)
+			cfg.MergeFlags(tt.dsn, tt.outputDir, tt.pkg, tt.goPkg, tt.tables, tt.includeComments, 0, tt.enableAPI, tt.apiBasePath, tt.apiTablePrefixes)
 			assert.Equal(t, tt.expected, cfg)
 		})
 	}

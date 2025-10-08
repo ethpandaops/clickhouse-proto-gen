@@ -25,3 +25,20 @@ include_comments: true
 # Maximum page size for List operations (default: 10000)
 # Values above this limit will return an error
 max_page_size: 10000
+
+# API Generation Options
+# These settings control generation of HTTP/REST API annotations using Google API standards
+
+# Enable generation of HTTP annotations for REST API endpoints
+# When true, generates google.api.http annotations and field_behavior annotations
+enable_api: true
+
+# Base path for API endpoints (used when enable_api is true)
+# Example: "/api/v1" results in endpoints like "/api/v1/table_name"
+api_base_path: /api/v1
+
+# Table prefixes to expose via REST API (optional)
+# Empty list = all tables get API endpoints
+# Non-empty list = only tables matching these prefixes get API endpoints
+# Example: ["fct_", "dim_"] will only generate APIs for fact and dimension tables
+api_table_prefixes: ["fct_"]

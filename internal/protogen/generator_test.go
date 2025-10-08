@@ -523,3 +523,327 @@ func TestGetProtoTypeForColumn(t *testing.T) {
 		})
 	}
 }
+
+func TestGenerator_ShouldGenerateAPI(t *testing.T) {
+	tests := []struct {
+		name      string
+		config    *config.Config
+		tableName string
+		shouldGen bool
+	}{
+		{
+			name: "fct_ table with prefix filter",
+			config: &config.Config{
+				EnableAPI:        true,
+				APITablePrefixes: []string{"fct_"},
+			},
+			tableName: "fct_block",
+			shouldGen: true,
+		},
+		{
+			name: "external table with prefix filter",
+			config: &config.Config{
+				EnableAPI:        true,
+				APITablePrefixes: []string{"fct_"},
+			},
+			tableName: "beacon_api_eth_v1_events_block",
+			shouldGen: false,
+		},
+		{
+			name: "int_ table with prefix filter",
+			config: &config.Config{
+				EnableAPI:        true,
+				APITablePrefixes: []string{"fct_"},
+			},
+			tableName: "int_block_processing",
+			shouldGen: false,
+		},
+		{
+			name: "any table with no prefix filter",
+			config: &config.Config{
+				EnableAPI:        true,
+				APITablePrefixes: []string{},
+			},
+			tableName: "beacon_api_eth_v1_events_block",
+			shouldGen: true,
+		},
+		{
+			name: "API generation disabled",
+			config: &config.Config{
+				EnableAPI:        false,
+				APITablePrefixes: []string{"fct_"},
+			},
+			tableName: "fct_block",
+			shouldGen: false,
+		},
+		{
+			name: "multiple prefixes - matches first",
+			config: &config.Config{
+				EnableAPI:        true,
+				APITablePrefixes: []string{"fct_", "dim_"},
+			},
+			tableName: "fct_attestation",
+			shouldGen: true,
+		},
+		{
+			name: "multiple prefixes - matches second",
+			config: &config.Config{
+				EnableAPI:        true,
+				APITablePrefixes: []string{"fct_", "dim_"},
+			},
+			tableName: "dim_validator",
+			shouldGen: true,
+		},
+		{
+			name: "multiple prefixes - no match",
+			config: &config.Config{
+				EnableAPI:        true,
+				APITablePrefixes: []string{"fct_", "dim_"},
+			},
+			tableName: "int_block_processing",
+			shouldGen: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			log := logrus.New()
+			gen := NewGenerator(tt.config, log)
+			result := gen.shouldGenerateAPI(tt.tableName)
+			assert.Equal(t, tt.shouldGen, result)
+		})
+	}
+}
+
+func TestGenerator_ServiceWithHTTPAnnotations(t *testing.T) {
+	tests := []struct {
+		name               string
+		config             *config.Config
+		table              *clickhouse.Table
+		expectedHTTP       bool
+		expectedAnnotation bool
+	}{
+		{
+			name: "fct_ table should have HTTP annotations",
+			config: &config.Config{
+				EnableAPI:        true,
+				APIBasePath:      "/api/v1",
+				APITablePrefixes: []string{"fct_"},
+				IncludeComments:  true,
+			},
+			table: &clickhouse.Table{
+				Name: "fct_block",
+				Columns: []clickhouse.Column{
+					{
+						Name:     "slot",
+						Type:     "UInt32",
+						BaseType: "UInt32",
+						Position: 1,
+					},
+				},
+				SortingKey: []string{"slot"},
+			},
+			expectedHTTP:       true,
+			expectedAnnotation: true,
+		},
+		{
+			name: "external table should NOT have HTTP annotations",
+			config: &config.Config{
+				EnableAPI:        true,
+				APIBasePath:      "/api/v1",
+				APITablePrefixes: []string{"fct_"},
+				IncludeComments:  true,
+			},
+			table: &clickhouse.Table{
+				Name: "beacon_api_eth_v1_events_block",
+				Columns: []clickhouse.Column{
+					{
+						Name:     "slot",
+						Type:     "UInt32",
+						BaseType: "UInt32",
+						Position: 1,
+					},
+				},
+				SortingKey: []string{"slot"},
+			},
+			expectedHTTP:       false,
+			expectedAnnotation: false,
+		},
+		{
+			name: "int_ table should NOT have HTTP annotations",
+			config: &config.Config{
+				EnableAPI:        true,
+				APIBasePath:      "/api/v1",
+				APITablePrefixes: []string{"fct_"},
+				IncludeComments:  true,
+			},
+			table: &clickhouse.Table{
+				Name: "int_block_processing",
+				Columns: []clickhouse.Column{
+					{
+						Name:     "slot",
+						Type:     "UInt32",
+						BaseType: "UInt32",
+						Position: 1,
+					},
+				},
+				SortingKey: []string{"slot"},
+			},
+			expectedHTTP:       false,
+			expectedAnnotation: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			log := logrus.New()
+			gen := NewGenerator(tt.config, log)
+
+			var sb strings.Builder
+			gen.writeServiceDefinitions(&sb, tt.table)
+			result := sb.String()
+
+			if tt.expectedHTTP {
+				// Should have HTTP annotations with pipe-separated comment format
+				assert.Contains(t, result, "option (google.api.http)", "Expected HTTP annotations")
+				assert.Contains(t, result, "get: \"/api/v1/"+tt.table.Name+"\"", "Expected GET endpoint")
+				assert.Contains(t, result, " | ", "Expected pipe-separated comment format")
+			} else {
+				// Should NOT have HTTP annotations
+				assert.NotContains(t, result, "option (google.api.http)", "Should not have HTTP annotations")
+				assert.Contains(t, result, "gRPC only", "Should indicate gRPC only")
+			}
+
+			if tt.expectedAnnotation {
+				// Should have field_behavior annotations
+				assert.Contains(t, result, "google.api.field_behavior", "Expected field_behavior annotations")
+				assert.Contains(t, result, "REQUIRED", "Expected REQUIRED annotation for primary key")
+				assert.Contains(t, result, "OPTIONAL", "Expected OPTIONAL annotations")
+			} else {
+				// Should NOT have field_behavior annotations
+				assert.NotContains(t, result, "google.api.field_behavior", "Should not have field_behavior annotations")
+			}
+		})
+	}
+}
+
+func TestGenerator_GenerateProtoWithAPIAnnotations(t *testing.T) {
+	// Create a temp directory for test output
+	tempDir, err := os.MkdirTemp("", "protogen_api_test_*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	cfg := &config.Config{
+		OutputDir:        tempDir,
+		Package:          "clickhouse.v1",
+		GoPackage:        "github.com/test/proto/clickhouse",
+		IncludeComments:  true,
+		EnableAPI:        true,
+		APIBasePath:      "/api/v1",
+		APITablePrefixes: []string{"fct_"},
+		MaxPageSize:      10000,
+	}
+
+	log := logrus.New()
+	log.SetLevel(logrus.WarnLevel)
+
+	gen := NewGenerator(cfg, log)
+
+	// Create test tables: one fct_ table and one non-fct_ table
+	tables := []*clickhouse.Table{
+		{
+			Name:     "fct_block",
+			Database: "mainnet",
+			Comment:  "Block data from the beacon chain",
+			Columns: []clickhouse.Column{
+				{
+					Name:     "slot",
+					Type:     "UInt32",
+					BaseType: "UInt32",
+					Position: 1,
+					Comment:  "Slot number",
+				},
+				{
+					Name:     "proposer_index",
+					Type:     "UInt32",
+					BaseType: "UInt32",
+					Position: 2,
+					Comment:  "Proposer validator index",
+				},
+			},
+			SortingKey: []string{"slot"},
+		},
+		{
+			Name:     "beacon_api_eth_v1_events_block",
+			Database: "mainnet",
+			Comment:  "Raw beacon API events",
+			Columns: []clickhouse.Column{
+				{
+					Name:     "slot",
+					Type:     "UInt32",
+					BaseType: "UInt32",
+					Position: 1,
+					Comment:  "Slot number",
+				},
+			},
+			SortingKey: []string{"slot"},
+		},
+	}
+
+	err = gen.Generate(tables)
+	require.NoError(t, err)
+
+	// Read and verify fct_block.proto
+	fctBlockProtoPath := filepath.Join(tempDir, "fct_block.proto")
+	assert.FileExists(t, fctBlockProtoPath)
+
+	fctContent, err := os.ReadFile(fctBlockProtoPath)
+	require.NoError(t, err)
+
+	fctContentStr := string(fctContent)
+
+	// Verify basic structure
+	assert.Contains(t, fctContentStr, "syntax = \"proto3\"")
+	assert.Contains(t, fctContentStr, "package clickhouse.v1")
+	assert.Contains(t, fctContentStr, "option go_package = \"github.com/test/proto/clickhouse\"")
+
+	// Verify Google API imports are present for fct_ table
+	assert.Contains(t, fctContentStr, "import \"google/api/annotations.proto\"")
+	assert.Contains(t, fctContentStr, "import \"google/api/field_behavior.proto\"")
+
+	// Verify HTTP annotations
+	assert.Contains(t, fctContentStr, "option (google.api.http) = {")
+	assert.Contains(t, fctContentStr, "get: \"/api/v1/fct_block\"")
+
+	// Verify pipe-separated comment format for service
+	assert.Contains(t, fctContentStr, " | Retrieve a paginated list of")
+
+	// Verify field_behavior annotations
+	assert.Contains(t, fctContentStr, "[(google.api.field_behavior) = REQUIRED]")
+	assert.Contains(t, fctContentStr, "[(google.api.field_behavior) = OPTIONAL]")
+
+	// Read and verify beacon_api_eth_v1_events_block.proto
+	beaconProtoPath := filepath.Join(tempDir, "beacon_api_eth_v1_events_block.proto")
+	assert.FileExists(t, beaconProtoPath)
+
+	beaconContent, err := os.ReadFile(beaconProtoPath)
+	require.NoError(t, err)
+
+	beaconContentStr := string(beaconContent)
+
+	// Verify basic structure
+	assert.Contains(t, beaconContentStr, "syntax = \"proto3\"")
+
+	// Verify Google API imports are NOT present for non-fct_ table
+	assert.NotContains(t, beaconContentStr, "import \"google/api/annotations.proto\"")
+	assert.NotContains(t, beaconContentStr, "import \"google/api/field_behavior.proto\"")
+
+	// Verify NO HTTP annotations
+	assert.NotContains(t, beaconContentStr, "option (google.api.http)")
+
+	// Verify gRPC only indicators
+	assert.Contains(t, beaconContentStr, "gRPC only")
+
+	// Verify NO field_behavior annotations
+	assert.NotContains(t, beaconContentStr, "google.api.field_behavior")
+}

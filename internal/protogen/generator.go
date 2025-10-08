@@ -31,6 +31,29 @@ type Generator struct {
 	log        logrus.FieldLogger
 }
 
+// shouldGenerateAPI determines if a table should have HTTP API endpoints
+func (g *Generator) shouldGenerateAPI(tableName string) bool {
+	// If API generation is disabled, don't generate HTTP annotations
+	if !g.config.EnableAPI {
+		return false
+	}
+
+	// If no prefixes specified, generate API for all tables
+	if len(g.config.APITablePrefixes) == 0 {
+		return true
+	}
+
+	// Check if table matches any allowed prefix
+	for _, prefix := range g.config.APITablePrefixes {
+		if strings.HasPrefix(tableName, prefix) {
+			return true
+		}
+	}
+
+	// Table doesn't match any prefix - skip API generation
+	return false
+}
+
 // NewGenerator creates a new proto file generator
 func NewGenerator(cfg *config.Config, log logrus.FieldLogger) *Generator {
 	return &Generator{
@@ -81,7 +104,7 @@ func (g *Generator) generateTableFile(table *clickhouse.Table) error {
 	needsWrapper := g.checkNeedsWrapper([]*clickhouse.Table{table})
 	// Check if service generation will need additional imports
 	hasService := len(table.SortingKey) > 0
-	g.writeTableHeader(&sb, needsWrapper, hasService)
+	g.writeTableHeader(&sb, needsWrapper, hasService, table.Name)
 
 	// Write the message definition
 	g.writeMessage(&sb, table)
@@ -150,7 +173,7 @@ func (g *Generator) tableNeedsWrapperForService(table *clickhouse.Table) bool {
 	return false
 }
 
-func (g *Generator) writeTableHeader(sb *strings.Builder, needsWrapper, hasService bool) {
+func (g *Generator) writeTableHeader(sb *strings.Builder, needsWrapper, hasService bool, tableName string) {
 	sb.WriteString("syntax = \"proto3\";\n\n")
 
 	if g.config.Package != "" {
@@ -163,6 +186,12 @@ func (g *Generator) writeTableHeader(sb *strings.Builder, needsWrapper, hasServi
 	}
 	if needsWrapper {
 		sb.WriteString("import \"google/protobuf/wrappers.proto\";\n")
+	}
+
+	// Add Google API annotations if this table has API endpoints
+	if hasService && g.shouldGenerateAPI(tableName) {
+		sb.WriteString("import \"google/api/annotations.proto\";\n")
+		sb.WriteString("import \"google/api/field_behavior.proto\";\n")
 	}
 
 	if g.config.GoPackage != "" {
@@ -221,12 +250,12 @@ func (g *Generator) writeServiceDefinitions(sb *strings.Builder, table *clickhou
 
 	// Process primary key (first sorting column) - REQUIRED
 	if len(table.SortingKey) > 0 {
-		fieldNumber = g.writePrimaryKeyField(sb, table.SortingKey[0], columnMap, processedColumns, fieldNumber)
+		fieldNumber = g.writePrimaryKeyField(sb, table.SortingKey[0], columnMap, processedColumns, fieldNumber, table.Name)
 	}
 
 	// Process remaining sorting columns - OPTIONAL
 	for i := 1; i < len(table.SortingKey); i++ {
-		fieldNumber = g.writeSortingKeyField(sb, table.SortingKey[i], columnMap, processedColumns, fieldNumber, i+1)
+		fieldNumber = g.writeSortingKeyField(sb, table.SortingKey[i], columnMap, processedColumns, fieldNumber, i+1, table.Name)
 	}
 
 	// Process all other columns - OPTIONAL
@@ -236,18 +265,30 @@ func (g *Generator) writeServiceDefinitions(sb *strings.Builder, table *clickhou
 	fmt.Fprintf(sb, "\n  // The maximum number of %s to return.\n", table.Name)
 	fmt.Fprintf(sb, "  // If unspecified, at most 100 items will be returned.\n")
 	fmt.Fprintf(sb, "  // The maximum value is %d; values above %d will be coerced to %d.\n", g.config.MaxPageSize, g.config.MaxPageSize, g.config.MaxPageSize)
-	fmt.Fprintf(sb, "  int32 page_size = %d;\n", fieldNumber)
+	if g.shouldGenerateAPI(table.Name) {
+		fmt.Fprintf(sb, "  int32 page_size = %d [(google.api.field_behavior) = OPTIONAL];\n", fieldNumber)
+	} else {
+		fmt.Fprintf(sb, "  int32 page_size = %d;\n", fieldNumber)
+	}
 
 	fieldNumber++
 	fmt.Fprintf(sb, "  // A page token, received from a previous `List%s` call.\n", messageName)
 	fmt.Fprintf(sb, "  // Provide this to retrieve the subsequent page.\n")
-	fmt.Fprintf(sb, "  string page_token = %d;\n", fieldNumber)
+	if g.shouldGenerateAPI(table.Name) {
+		fmt.Fprintf(sb, "  string page_token = %d [(google.api.field_behavior) = OPTIONAL];\n", fieldNumber)
+	} else {
+		fmt.Fprintf(sb, "  string page_token = %d;\n", fieldNumber)
+	}
 
 	fieldNumber++
 	fmt.Fprintf(sb, "  // The order of results. Format: comma-separated list of fields.\n")
 	fmt.Fprintf(sb, "  // Example: \"foo,bar\" or \"foo desc,bar\" for descending order on foo.\n")
 	fmt.Fprintf(sb, "  // If unspecified, results will be returned in the default order.\n")
-	fmt.Fprintf(sb, "  string order_by = %d;\n", fieldNumber)
+	if g.shouldGenerateAPI(table.Name) {
+		fmt.Fprintf(sb, "  string order_by = %d [(google.api.field_behavior) = OPTIONAL];\n", fieldNumber)
+	} else {
+		fmt.Fprintf(sb, "  string order_by = %d;\n", fieldNumber)
+	}
 	sb.WriteString("}\n\n")
 
 	// Write response message
@@ -295,17 +336,45 @@ func (g *Generator) writeServiceDefinitions(sb *strings.Builder, table *clickhou
 	fmt.Fprintf(sb, "// %sService provides RPC methods for querying %s data\n",
 		messageName, table.Name)
 	fmt.Fprintf(sb, "service %sService {\n", messageName)
-	fmt.Fprintf(sb, "  // List returns paginated %s records\n", table.Name)
-	fmt.Fprintf(sb, "  rpc List(List%sRequest) returns (List%sResponse);\n",
-		messageName, messageName)
-	fmt.Fprintf(sb, "  // Get returns a single %s record by primary key\n", table.Name)
-	fmt.Fprintf(sb, "  rpc Get(Get%sRequest) returns (Get%sResponse);\n",
-		messageName, messageName)
+
+	// Check if this table should have HTTP annotations
+	if g.shouldGenerateAPI(table.Name) {
+		// Generate List RPC WITH HTTP annotations
+		fmt.Fprintf(sb, "  // List %s | Retrieve a paginated list of %s records from the %s table\n",
+			table.Name, table.Name, table.Name)
+		fmt.Fprintf(sb, "  rpc List(List%sRequest) returns (List%sResponse) {\n",
+			messageName, messageName)
+		fmt.Fprintf(sb, "    option (google.api.http) = {\n")
+		fmt.Fprintf(sb, "      get: \"%s/%s\"\n", g.config.APIBasePath, table.Name)
+		fmt.Fprintf(sb, "    };\n")
+		fmt.Fprintf(sb, "  }\n")
+
+		// Generate Get RPC WITH HTTP annotations
+		primaryKey := table.SortingKey[0]
+		primaryKeyField := SanitizeName(primaryKey)
+		fmt.Fprintf(sb, "  // Get %s | Retrieve a single %s record by %s\n",
+			table.Name, table.Name, primaryKey)
+		fmt.Fprintf(sb, "  rpc Get(Get%sRequest) returns (Get%sResponse) {\n",
+			messageName, messageName)
+		fmt.Fprintf(sb, "    option (google.api.http) = {\n")
+		fmt.Fprintf(sb, "      get: \"%s/%s/{%s}\"\n", g.config.APIBasePath, table.Name, primaryKeyField)
+		fmt.Fprintf(sb, "    };\n")
+		fmt.Fprintf(sb, "  }\n")
+	} else {
+		// Generate List RPC WITHOUT HTTP annotations (basic gRPC only)
+		fmt.Fprintf(sb, "  // List returns paginated %s records\n", table.Name)
+		fmt.Fprintf(sb, "  rpc List(List%sRequest) returns (List%sResponse);\n",
+			messageName, messageName)
+		fmt.Fprintf(sb, "  // Get returns a single %s record by primary key\n", table.Name)
+		fmt.Fprintf(sb, "  rpc Get(Get%sRequest) returns (Get%sResponse);\n",
+			messageName, messageName)
+	}
+
 	sb.WriteString("}\n")
 }
 
 // writePrimaryKeyField writes the primary key field (required) for service request
-func (g *Generator) writePrimaryKeyField(sb *strings.Builder, sortCol string, columnMap map[string]*clickhouse.Column, processedColumns map[string]bool, fieldNumber int) int {
+func (g *Generator) writePrimaryKeyField(sb *strings.Builder, sortCol string, columnMap map[string]*clickhouse.Column, processedColumns map[string]bool, fieldNumber int, tableName string) int {
 	column, exists := columnMap[sortCol]
 	if !exists {
 		return fieldNumber
@@ -318,14 +387,22 @@ func (g *Generator) writePrimaryKeyField(sb *strings.Builder, sortCol string, co
 	filterType := g.typeMapper.GetFilterTypeForColumn(column)
 	if filterType != "" {
 		fmt.Fprintf(sb, "  // Filter by %s (PRIMARY KEY - required)\n", sortCol)
-		fmt.Fprintf(sb, "  %s %s = %d;\n", filterType, SanitizeName(sortCol), fieldNumber)
+		if g.shouldGenerateAPI(tableName) {
+			fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = REQUIRED];\n", filterType, SanitizeName(sortCol), fieldNumber)
+		} else {
+			fmt.Fprintf(sb, "  %s %s = %d;\n", filterType, SanitizeName(sortCol), fieldNumber)
+		}
 		fieldNumber++
 		fmt.Fprintf(sb, "\n")
 	} else {
 		// For types without filter support, use the proto type directly
 		protoType := getProtoTypeForColumn(column)
 		fmt.Fprintf(sb, "  // Filter by %s (PRIMARY KEY - required)\n", sortCol)
-		fmt.Fprintf(sb, "  %s %s = %d;\n", protoType, SanitizeName(sortCol), fieldNumber)
+		if g.shouldGenerateAPI(tableName) {
+			fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = REQUIRED];\n", protoType, SanitizeName(sortCol), fieldNumber)
+		} else {
+			fmt.Fprintf(sb, "  %s %s = %d;\n", protoType, SanitizeName(sortCol), fieldNumber)
+		}
 		fieldNumber++
 		fmt.Fprintf(sb, "\n")
 	}
@@ -334,7 +411,7 @@ func (g *Generator) writePrimaryKeyField(sb *strings.Builder, sortCol string, co
 }
 
 // writeSortingKeyField writes a non-primary sorting key field (optional) for service request
-func (g *Generator) writeSortingKeyField(sb *strings.Builder, sortCol string, columnMap map[string]*clickhouse.Column, processedColumns map[string]bool, fieldNumber, orderPosition int) int {
+func (g *Generator) writeSortingKeyField(sb *strings.Builder, sortCol string, columnMap map[string]*clickhouse.Column, processedColumns map[string]bool, fieldNumber, orderPosition int, tableName string) int {
 	column, exists := columnMap[sortCol]
 	if !exists {
 		return fieldNumber
@@ -346,14 +423,22 @@ func (g *Generator) writeSortingKeyField(sb *strings.Builder, sortCol string, co
 	filterType := g.typeMapper.GetFilterTypeForColumn(column)
 	if filterType != "" {
 		fmt.Fprintf(sb, "  // Filter by %s (ORDER BY column %d - optional)\n", sortCol, orderPosition)
-		fmt.Fprintf(sb, "  %s %s = %d;\n", filterType, SanitizeName(sortCol), fieldNumber)
+		if g.shouldGenerateAPI(tableName) {
+			fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = OPTIONAL];\n", filterType, SanitizeName(sortCol), fieldNumber)
+		} else {
+			fmt.Fprintf(sb, "  %s %s = %d;\n", filterType, SanitizeName(sortCol), fieldNumber)
+		}
 		fieldNumber++
 		fmt.Fprintf(sb, "\n")
 	} else {
 		// For types without filter support, use wrapper type for optional field
 		wrapperType := g.typeMapper.getWrapperTypeForColumn(column)
 		fmt.Fprintf(sb, "  // Filter by %s (ORDER BY column %d - optional)\n", sortCol, orderPosition)
-		fmt.Fprintf(sb, "  %s %s = %d;\n", wrapperType, SanitizeName(sortCol), fieldNumber)
+		if g.shouldGenerateAPI(tableName) {
+			fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = OPTIONAL];\n", wrapperType, SanitizeName(sortCol), fieldNumber)
+		} else {
+			fmt.Fprintf(sb, "  %s %s = %d;\n", wrapperType, SanitizeName(sortCol), fieldNumber)
+		}
 		fieldNumber++
 		fmt.Fprintf(sb, "\n")
 	}
@@ -372,13 +457,21 @@ func (g *Generator) writeRemainingColumnFilters(sb *strings.Builder, table *clic
 		filterType := g.typeMapper.GetFilterTypeForColumn(&column)
 		if filterType != "" {
 			fmt.Fprintf(sb, "  // Filter by %s (optional)\n", column.Name)
-			fmt.Fprintf(sb, "  %s %s = %d;\n", filterType, SanitizeName(column.Name), fieldNumber)
+			if g.shouldGenerateAPI(table.Name) {
+				fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = OPTIONAL];\n", filterType, SanitizeName(column.Name), fieldNumber)
+			} else {
+				fmt.Fprintf(sb, "  %s %s = %d;\n", filterType, SanitizeName(column.Name), fieldNumber)
+			}
 			fieldNumber++
 		} else {
 			// For types without filter support, use wrapper type for optional field
 			wrapperType := g.typeMapper.getWrapperTypeForColumn(&column)
 			fmt.Fprintf(sb, "  // Filter by %s (optional)\n", column.Name)
-			fmt.Fprintf(sb, "  %s %s = %d;\n", wrapperType, SanitizeName(column.Name), fieldNumber)
+			if g.shouldGenerateAPI(table.Name) {
+				fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = OPTIONAL];\n", wrapperType, SanitizeName(column.Name), fieldNumber)
+			} else {
+				fmt.Fprintf(sb, "  %s %s = %d;\n", wrapperType, SanitizeName(column.Name), fieldNumber)
+			}
 			fieldNumber++
 		}
 	}
