@@ -10,6 +10,11 @@ import (
 	"github.com/ethpandaops/clickhouse-proto-gen/internal/clickhouse"
 )
 
+const (
+	clickhouseDateTime   = "DateTime"
+	clickhouseDateTime64 = "DateTime64"
+)
+
 // GenerateSQLHelpers generates SQL query builder helpers for all tables
 func (g *Generator) GenerateSQLHelpers(tables []*clickhouse.Table) error {
 	for _, table := range tables {
@@ -91,6 +96,30 @@ func getProtocMessageName(tableName string) string {
 		}
 	}
 	return string(result)
+}
+
+// getSelectColumnExpression generates the appropriate SELECT column expression
+// based on the column's type. DateTime types are wrapped with transformation
+// functions to return Unix timestamps.
+func getSelectColumnExpression(col *clickhouse.Column) string {
+	// Handle Array(DateTime) types with arrayMap transformation
+	if col.IsArray && col.BaseType == clickhouseDateTime {
+		return fmt.Sprintf("arrayMap(x -> toUnixTimestamp(x), `%s`) AS `%s`", col.Name, col.Name)
+	}
+	if col.IsArray && col.BaseType == clickhouseDateTime64 {
+		return fmt.Sprintf("arrayMap(x -> toUnixTimestamp64(x, 6), `%s`) AS `%s`", col.Name, col.Name)
+	}
+
+	// Handle regular DateTime types
+	if col.BaseType == clickhouseDateTime {
+		return fmt.Sprintf("toUnixTimestamp(`%s`) AS `%s`", col.Name, col.Name)
+	}
+	if col.BaseType == clickhouseDateTime64 {
+		return fmt.Sprintf("toUnixTimestamp64(`%s`, 6) AS `%s`", col.Name, col.Name)
+	}
+
+	// Default: return column name as-is
+	return col.Name
 }
 
 // writeSQLBuilderFunction generates the SQL query builder function for a List request
@@ -196,7 +225,8 @@ func (g *Generator) writeSQLBuilderFunction(sb *strings.Builder, table *clickhou
 		if i > 0 {
 			fmt.Fprintf(sb, ", ")
 		}
-		fmt.Fprintf(sb, "\"%s\"", col.Name)
+		colExpr := getSelectColumnExpression(&col)
+		fmt.Fprintf(sb, "\"%s\"", colExpr)
 	}
 	fmt.Fprintf(sb, "}\n\n")
 	fmt.Fprintf(sb, "\treturn BuildParameterizedQuery(\"%s\", columns, qb, orderByClause, limit, offset, options...)\n", table.Name)
@@ -275,7 +305,8 @@ func (g *Generator) writeGetSQLBuilderFunction(sb *strings.Builder, table *click
 			if i > 0 {
 				fmt.Fprintf(sb, ", ")
 			}
-			fmt.Fprintf(sb, "\"%s\"", col.Name)
+			colExpr := getSelectColumnExpression(&col)
+			fmt.Fprintf(sb, "\"%s\"", colExpr)
 		}
 		fmt.Fprintf(sb, "}\n\n")
 		fmt.Fprintf(sb, "\t// Return single record\n")
@@ -340,7 +371,8 @@ func (g *Generator) writeGetSQLBuilderFunction(sb *strings.Builder, table *click
 		if i > 0 {
 			fmt.Fprintf(sb, ", ")
 		}
-		fmt.Fprintf(sb, "\"%s\"", col.Name)
+		colExpr := getSelectColumnExpression(&col)
+		fmt.Fprintf(sb, "\"%s\"", colExpr)
 	}
 	fmt.Fprintf(sb, "}\n\n")
 
@@ -386,7 +418,7 @@ func (g *Generator) writeFilterCondition(sb *strings.Builder, columnName, fieldN
 	}
 
 	// Check if this is a DateTime column
-	isDateTime := column.BaseType == "DateTime" || column.BaseType == "DateTime64"
+	isDateTime := column.BaseType == clickhouseDateTime || column.BaseType == clickhouseDateTime64
 
 	indent := "\t"
 	if !isPrimary {
