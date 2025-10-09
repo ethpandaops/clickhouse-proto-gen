@@ -98,9 +98,23 @@ func getProtocMessageName(tableName string) string {
 	return string(result)
 }
 
+// needsStringConversion checks if a column type requires toString() conversion.
+// Large integer types (UInt128, UInt256, Int128, Int256) are too large for
+// standard Go integer types and are mapped to string in protobuf.
+func needsStringConversion(col *clickhouse.Column) bool {
+	largeIntTypes := []string{"UInt128", "UInt256", "Int128", "Int256"}
+	for _, t := range largeIntTypes {
+		if col.BaseType == t {
+			return true
+		}
+	}
+	return false
+}
+
 // getSelectColumnExpression generates the appropriate SELECT column expression
 // based on the column's type. DateTime types are wrapped with transformation
-// functions to return Unix timestamps.
+// functions to return Unix timestamps. Large integer types are wrapped with
+// toString() to convert them to strings for protobuf compatibility.
 func getSelectColumnExpression(col *clickhouse.Column) string {
 	// Handle Array(DateTime) types with arrayMap transformation
 	if col.IsArray && col.BaseType == clickhouseDateTime {
@@ -116,6 +130,14 @@ func getSelectColumnExpression(col *clickhouse.Column) string {
 	}
 	if col.BaseType == clickhouseDateTime64 {
 		return fmt.Sprintf("toUnixTimestamp64(`%s`, 6) AS `%s`", col.Name, col.Name)
+	}
+
+	// Handle large integer types that need string conversion
+	if needsStringConversion(col) {
+		if col.IsArray {
+			return fmt.Sprintf("arrayMap(x -> toString(x), `%s`) AS `%s`", col.Name, col.Name)
+		}
+		return fmt.Sprintf("toString(`%s`) AS `%s`", col.Name, col.Name)
 	}
 
 	// Default: return column name as-is
