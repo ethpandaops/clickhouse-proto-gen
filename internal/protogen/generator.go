@@ -446,7 +446,12 @@ func (g *Generator) writeSortingKeyField(sb *strings.Builder, sortCol string, co
 		wrapperType := g.typeMapper.getWrapperTypeForColumn(column)
 		fmt.Fprintf(sb, "  // %s\n", comment)
 		if g.shouldGenerateAPI(tableName) {
-			fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = OPTIONAL];\n", wrapperType, SanitizeName(sortCol), fieldNumber)
+			// Don't add OPTIONAL to repeated fields - arrays are never null, just empty
+			if strings.HasPrefix(wrapperType, "repeated ") {
+				fmt.Fprintf(sb, "  %s %s = %d;\n", wrapperType, SanitizeName(sortCol), fieldNumber)
+			} else {
+				fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = OPTIONAL];\n", wrapperType, SanitizeName(sortCol), fieldNumber)
+			}
 		} else {
 			fmt.Fprintf(sb, "  %s %s = %d;\n", wrapperType, SanitizeName(sortCol), fieldNumber)
 		}
@@ -485,7 +490,12 @@ func (g *Generator) writeRemainingColumnFilters(sb *strings.Builder, table *clic
 			wrapperType := g.typeMapper.getWrapperTypeForColumn(&column)
 			fmt.Fprintf(sb, "  // %s\n", comment)
 			if g.shouldGenerateAPI(table.Name) {
-				fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = OPTIONAL];\n", wrapperType, SanitizeName(column.Name), fieldNumber)
+				// Don't add OPTIONAL to repeated fields - arrays are never null, just empty
+				if strings.HasPrefix(wrapperType, "repeated ") {
+					fmt.Fprintf(sb, "  %s %s = %d;\n", wrapperType, SanitizeName(column.Name), fieldNumber)
+				} else {
+					fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = OPTIONAL];\n", wrapperType, SanitizeName(column.Name), fieldNumber)
+				}
 			} else {
 				fmt.Fprintf(sb, "  %s %s = %d;\n", wrapperType, SanitizeName(column.Name), fieldNumber)
 			}
