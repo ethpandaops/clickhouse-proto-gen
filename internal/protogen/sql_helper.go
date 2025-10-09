@@ -384,6 +384,21 @@ func (g *Generator) writeGetSQLBuilderFunction(sb *strings.Builder, table *click
 
 // writeAllFilterConditions writes filter conditions for all columns
 func (g *Generator) writeAllFilterConditions(sb *strings.Builder, table *clickhouse.Table, columnMap map[string]*clickhouse.Column) {
+	// Collect all primary keys from base table and projections
+	allPrimaryKeys := make(map[string]bool)
+	if len(table.SortingKey) > 0 {
+		allPrimaryKeys[table.SortingKey[0]] = true
+	}
+	for _, proj := range table.Projections {
+		if len(proj.OrderByKey) > 0 {
+			allPrimaryKeys[proj.OrderByKey[0]] = true
+		}
+	}
+
+	// If multiple primary keys exist (from projections), treat all as optional
+	// Only when there's a single primary key should it be treated as required
+	hasMultiplePrimaryKeys := len(allPrimaryKeys) > 1
+
 	// Check if table has a primary key
 	var primaryKey string
 	if len(table.SortingKey) > 0 {
@@ -391,7 +406,9 @@ func (g *Generator) writeAllFilterConditions(sb *strings.Builder, table *clickho
 		primaryKey = table.SortingKey[0]
 		primaryKeyField := SanitizeName(primaryKey)
 		fmt.Fprintf(sb, "\t// Add primary key filter\n")
-		g.writeFilterCondition(sb, primaryKey, primaryKeyField, columnMap[primaryKey], true)
+		// If multiple primary keys exist, treat this one as optional too
+		isPrimary := !hasMultiplePrimaryKeys
+		g.writeFilterCondition(sb, primaryKey, primaryKeyField, columnMap[primaryKey], isPrimary)
 	}
 
 	// Process all other columns
