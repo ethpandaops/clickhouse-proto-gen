@@ -413,6 +413,8 @@ func (g *Generator) writePrimaryKeyField(sb *strings.Builder, sortCol string, co
 
 	// Get the appropriate filter type based on column type and nullability
 	filterType := g.typeMapper.GetFilterTypeForColumn(column)
+
+	//nolint:nestif // readable.
 	if filterType != "" {
 		fmt.Fprintf(sb, "  // %s\n", comment)
 		if g.shouldGenerateAPI(table.Name) {
@@ -470,6 +472,8 @@ func (g *Generator) writeSortingKeyField(sb *strings.Builder, sortCol string, co
 
 	// Get the appropriate filter type based on column type and nullability
 	filterType := g.typeMapper.GetFilterTypeForColumn(column)
+
+	//nolint:nestif // readable.
 	if filterType != "" {
 		fmt.Fprintf(sb, "  // %s\n", comment)
 		if g.shouldGenerateAPI(tableName) {
@@ -485,6 +489,7 @@ func (g *Generator) writeSortingKeyField(sb *strings.Builder, sortCol string, co
 		fmt.Fprintf(sb, "  // %s\n", comment)
 		if g.shouldGenerateAPI(tableName) {
 			// Don't add OPTIONAL to repeated fields - arrays are never null, just empty
+			//nolint:gocritic // switch adds nothing here.
 			if strings.HasPrefix(wrapperType, "repeated ") {
 				fmt.Fprintf(sb, "  %s %s = %d;\n", wrapperType, SanitizeName(sortCol), fieldNumber)
 			} else {
@@ -533,6 +538,8 @@ func (g *Generator) writeRemainingColumnFilters(sb *strings.Builder, table *clic
 
 		// Get the appropriate filter type based on column type and nullability
 		filterType := g.typeMapper.GetFilterTypeForColumn(&column)
+
+		//nolint:nestif // readable.
 		if filterType != "" {
 			fmt.Fprintf(sb, "  // %s\n", comment)
 			if g.shouldGenerateAPI(table.Name) {
@@ -553,6 +560,7 @@ func (g *Generator) writeRemainingColumnFilters(sb *strings.Builder, table *clic
 			fmt.Fprintf(sb, "  // %s\n", comment)
 			if g.shouldGenerateAPI(table.Name) {
 				// Don't add OPTIONAL to repeated fields - arrays are never null, just empty
+				//nolint:gocritic // switch adds nothing here.
 				if strings.HasPrefix(wrapperType, "repeated ") {
 					fmt.Fprintf(sb, "  %s %s = %d;\n", wrapperType, SanitizeName(column.Name), fieldNumber)
 				} else if projectionInfo != nil {
