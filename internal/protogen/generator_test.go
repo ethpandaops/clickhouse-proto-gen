@@ -847,3 +847,179 @@ func TestGenerator_GenerateProtoWithAPIAnnotations(t *testing.T) {
 	// Verify NO field_behavior annotations
 	assert.NotContains(t, beaconContentStr, "google.api.field_behavior")
 }
+
+func TestGenerator_ProjectionAnnotations(t *testing.T) {
+	// Create a temp directory for test output
+	tempDir, err := os.MkdirTemp("", "protogen_projection_test_*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	cfg := &config.Config{
+		OutputDir:        tempDir,
+		Package:          "clickhouse.v1",
+		GoPackage:        "github.com/test/proto/clickhouse",
+		IncludeComments:  true,
+		EnableAPI:        true,
+		APITablePrefixes: []string{"fct_"},
+		APIBasePath:      "/api/v1",
+		MaxPageSize:      1000,
+	}
+
+	log := logrus.New()
+	log.SetLevel(logrus.WarnLevel)
+
+	gen := NewGenerator(cfg, log)
+
+	tables := []*clickhouse.Table{
+		{
+			Name:     "fct_events",
+			Database: "beacon",
+			Comment:  "Beacon chain events",
+			Columns: []clickhouse.Column{
+				{
+					Name:     "slot_start_date_time",
+					Type:     "DateTime64(3)",
+					BaseType: "DateTime64",
+					Position: 1,
+					Comment:  "Event timestamp",
+				},
+				{
+					Name:     "slot",
+					Type:     "UInt32",
+					BaseType: "UInt32",
+					Position: 2,
+					Comment:  "Slot number",
+				},
+				{
+					Name:     "event_type",
+					Type:     "String",
+					BaseType: "String",
+					Position: 3,
+					Comment:  "Type of event",
+				},
+			},
+			SortingKey: []string{"slot_start_date_time", "event_type"},
+			Projections: []clickhouse.Projection{
+				{
+					Name:       "slot_idx",
+					OrderByKey: []string{"slot", "event_type"},
+					Type:       "normal",
+				},
+			},
+		},
+	}
+
+	err = gen.Generate(tables)
+	require.NoError(t, err)
+
+	// Verify annotations.proto file was created
+	annotationsPath := filepath.Join(tempDir, "clickhouse", "annotations.proto")
+	assert.FileExists(t, annotationsPath, "annotations.proto should be generated in clickhouse/ subdirectory")
+
+	// Read the generated proto file
+	protoPath := filepath.Join(tempDir, "fct_events.proto")
+	content, err := os.ReadFile(protoPath)
+	require.NoError(t, err)
+
+	contentStr := string(content)
+
+	// Verify imports include clickhouse annotations
+	assert.Contains(t, contentStr, "import \"clickhouse/annotations.proto\"")
+
+	// Verify primary key is marked OPTIONAL (not REQUIRED) when projections exist
+	assert.Contains(t, contentStr, "Filter by slot_start_date_time")
+	assert.Contains(t, contentStr, "required unless using alternatives: slot")
+	assert.Contains(t, contentStr, "[(google.api.field_behavior) = OPTIONAL, (clickhouse.v1.required_group) = \"primary_key\"]")
+
+	// Verify projection key has proper annotations
+	assert.Contains(t, contentStr, "Filter by slot")
+	assert.Contains(t, contentStr, "PROJECTION: slot_idx - alternative to slot_start_date_time")
+	assert.Contains(t, contentStr, "(clickhouse.v1.projection_name) = \"slot_idx\"")
+	assert.Contains(t, contentStr, "(clickhouse.v1.projection_alternative_for) = \"slot_start_date_time\"")
+	assert.Contains(t, contentStr, "(clickhouse.v1.required_group) = \"primary_key\"")
+
+	// Verify regular columns remain OPTIONAL without projection annotations
+	assert.Contains(t, contentStr, "Filter by event_type")
+	// Should NOT have projection annotations on event_type (it's in ORDER BY but not first position)
+	lines := strings.Split(contentStr, "\n")
+	for i, line := range lines {
+		if strings.Contains(line, "Filter by event_type") {
+			// Check the field line (should be next line or nearby)
+			if i+1 < len(lines) {
+				fieldLine := lines[i+1]
+				assert.NotContains(t, fieldLine, "projection_name", "event_type should not have projection annotations")
+			}
+		}
+	}
+}
+
+func TestGenerator_NoProjectionAnnotationsWithoutProjections(t *testing.T) {
+	// Create a temp directory for test output
+	tempDir, err := os.MkdirTemp("", "protogen_no_projection_test_*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	cfg := &config.Config{
+		OutputDir:        tempDir,
+		Package:          "clickhouse.v1",
+		GoPackage:        "github.com/test/proto/clickhouse",
+		IncludeComments:  true,
+		EnableAPI:        true,
+		APITablePrefixes: []string{"fct_"},
+		APIBasePath:      "/api/v1",
+		MaxPageSize:      1000,
+	}
+
+	log := logrus.New()
+	log.SetLevel(logrus.WarnLevel)
+
+	gen := NewGenerator(cfg, log)
+
+	tables := []*clickhouse.Table{
+		{
+			Name:     "fct_simple",
+			Database: "beacon",
+			Comment:  "Simple table without projections",
+			Columns: []clickhouse.Column{
+				{
+					Name:     "id",
+					Type:     "UInt64",
+					BaseType: "UInt64",
+					Position: 1,
+					Comment:  "Record ID",
+				},
+				{
+					Name:     "value",
+					Type:     "String",
+					BaseType: "String",
+					Position: 2,
+					Comment:  "Record value",
+				},
+			},
+			SortingKey:  []string{"id"},
+			Projections: []clickhouse.Projection{}, // No projections
+		},
+	}
+
+	err = gen.Generate(tables)
+	require.NoError(t, err)
+
+	// Read the generated proto file
+	protoPath := filepath.Join(tempDir, "fct_simple.proto")
+	content, err := os.ReadFile(protoPath)
+	require.NoError(t, err)
+
+	contentStr := string(content)
+
+	// Verify primary key is still marked REQUIRED (no projections)
+	assert.Contains(t, contentStr, "Filter by id - Record ID (PRIMARY KEY - required)")
+	assert.Contains(t, contentStr, "[(google.api.field_behavior) = REQUIRED]")
+
+	// Verify NO projection annotations
+	assert.NotContains(t, contentStr, "projection_name")
+	assert.NotContains(t, contentStr, "projection_alternative_for")
+	assert.NotContains(t, contentStr, "required_group")
+
+	// Verify regular column remains OPTIONAL
+	assert.Contains(t, contentStr, "Filter by value - Record value (optional)")
+}
