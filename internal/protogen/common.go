@@ -395,8 +395,13 @@ func (g *Generator) GenerateAnnotationsProto() error {
 
 	sb.WriteString("\nimport \"google/protobuf/descriptor.proto\";\n")
 
-	// Use a fixed go_package for annotations
-	sb.WriteString("\noption go_package = \"github.com/ethpandaops/clickhouse-proto-gen/proto/clickhouse\";\n")
+	// Use the user's configured go_package as the base for the annotations package
+	// Since annotations.proto is in clickhouse/ subdirectory, append /clickhouse to the package
+	if g.config.GoPackage != "" {
+		// Remove trailing slash if present
+		goPackage := strings.TrimSuffix(g.config.GoPackage, "/")
+		fmt.Fprintf(&sb, "\noption go_package = \"%s/clickhouse\";\n", goPackage)
+	}
 
 	sb.WriteString("\n")
 
