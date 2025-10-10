@@ -10,6 +10,11 @@ import (
 	"github.com/ethpandaops/clickhouse-proto-gen/internal/clickhouse"
 )
 
+const (
+	clickhouseDateTime   = "DateTime"
+	clickhouseDateTime64 = "DateTime64"
+)
+
 // GenerateSQLHelpers generates SQL query builder helpers for all tables
 func (g *Generator) GenerateSQLHelpers(tables []*clickhouse.Table) error {
 	for _, table := range tables {
@@ -91,6 +96,52 @@ func getProtocMessageName(tableName string) string {
 		}
 	}
 	return string(result)
+}
+
+// needsStringConversion checks if a column type requires toString() conversion.
+// Large integer types (UInt128, UInt256, Int128, Int256) are too large for
+// standard Go integer types and are mapped to string in protobuf.
+func needsStringConversion(col *clickhouse.Column) bool {
+	largeIntTypes := []string{"UInt128", "UInt256", "Int128", "Int256"}
+	for _, t := range largeIntTypes {
+		if col.BaseType == t {
+			return true
+		}
+	}
+	return false
+}
+
+// getSelectColumnExpression generates the appropriate SELECT column expression
+// based on the column's type. DateTime types are wrapped with transformation
+// functions to return Unix timestamps. Large integer types are wrapped with
+// toString() to convert them to strings for protobuf compatibility.
+func getSelectColumnExpression(col *clickhouse.Column) string {
+	// Handle Array(DateTime) types with arrayMap transformation
+	if col.IsArray && col.BaseType == clickhouseDateTime {
+		return fmt.Sprintf("arrayMap(x -> toUnixTimestamp(x), `%s`) AS `%s`", col.Name, col.Name)
+	}
+	if col.IsArray && col.BaseType == clickhouseDateTime64 {
+		return fmt.Sprintf("arrayMap(x -> toUnixTimestamp64Micro(x), `%s`) AS `%s`", col.Name, col.Name)
+	}
+
+	// Handle regular DateTime types
+	if col.BaseType == clickhouseDateTime {
+		return fmt.Sprintf("toUnixTimestamp(`%s`) AS `%s`", col.Name, col.Name)
+	}
+	if col.BaseType == clickhouseDateTime64 {
+		return fmt.Sprintf("toUnixTimestamp64Micro(`%s`) AS `%s`", col.Name, col.Name)
+	}
+
+	// Handle large integer types that need string conversion
+	if needsStringConversion(col) {
+		if col.IsArray {
+			return fmt.Sprintf("arrayMap(x -> toString(x), `%s`) AS `%s`", col.Name, col.Name)
+		}
+		return fmt.Sprintf("toString(`%s`) AS `%s`", col.Name, col.Name)
+	}
+
+	// Default: return column name as-is
+	return col.Name
 }
 
 // writeSQLBuilderFunction generates the SQL query builder function for a List request
@@ -196,7 +247,8 @@ func (g *Generator) writeSQLBuilderFunction(sb *strings.Builder, table *clickhou
 		if i > 0 {
 			fmt.Fprintf(sb, ", ")
 		}
-		fmt.Fprintf(sb, "\"%s\"", col.Name)
+		colExpr := getSelectColumnExpression(&col)
+		fmt.Fprintf(sb, "\"%s\"", colExpr)
 	}
 	fmt.Fprintf(sb, "}\n\n")
 	fmt.Fprintf(sb, "\treturn BuildParameterizedQuery(\"%s\", columns, qb, orderByClause, limit, offset, options...)\n", table.Name)
@@ -275,7 +327,8 @@ func (g *Generator) writeGetSQLBuilderFunction(sb *strings.Builder, table *click
 			if i > 0 {
 				fmt.Fprintf(sb, ", ")
 			}
-			fmt.Fprintf(sb, "\"%s\"", col.Name)
+			colExpr := getSelectColumnExpression(&col)
+			fmt.Fprintf(sb, "\"%s\"", colExpr)
 		}
 		fmt.Fprintf(sb, "}\n\n")
 		fmt.Fprintf(sb, "\t// Return single record\n")
@@ -340,7 +393,8 @@ func (g *Generator) writeGetSQLBuilderFunction(sb *strings.Builder, table *click
 		if i > 0 {
 			fmt.Fprintf(sb, ", ")
 		}
-		fmt.Fprintf(sb, "\"%s\"", col.Name)
+		colExpr := getSelectColumnExpression(&col)
+		fmt.Fprintf(sb, "\"%s\"", colExpr)
 	}
 	fmt.Fprintf(sb, "}\n\n")
 
@@ -352,6 +406,21 @@ func (g *Generator) writeGetSQLBuilderFunction(sb *strings.Builder, table *click
 
 // writeAllFilterConditions writes filter conditions for all columns
 func (g *Generator) writeAllFilterConditions(sb *strings.Builder, table *clickhouse.Table, columnMap map[string]*clickhouse.Column) {
+	// Collect all primary keys from base table and projections
+	allPrimaryKeys := make(map[string]bool)
+	if len(table.SortingKey) > 0 {
+		allPrimaryKeys[table.SortingKey[0]] = true
+	}
+	for _, proj := range table.Projections {
+		if len(proj.OrderByKey) > 0 {
+			allPrimaryKeys[proj.OrderByKey[0]] = true
+		}
+	}
+
+	// If multiple primary keys exist (from projections), treat all as optional
+	// Only when there's a single primary key should it be treated as required
+	hasMultiplePrimaryKeys := len(allPrimaryKeys) > 1
+
 	// Check if table has a primary key
 	var primaryKey string
 	if len(table.SortingKey) > 0 {
@@ -359,7 +428,9 @@ func (g *Generator) writeAllFilterConditions(sb *strings.Builder, table *clickho
 		primaryKey = table.SortingKey[0]
 		primaryKeyField := SanitizeName(primaryKey)
 		fmt.Fprintf(sb, "\t// Add primary key filter\n")
-		g.writeFilterCondition(sb, primaryKey, primaryKeyField, columnMap[primaryKey], true)
+		// If multiple primary keys exist, treat this one as optional too
+		isPrimary := !hasMultiplePrimaryKeys
+		g.writeFilterCondition(sb, primaryKey, primaryKeyField, columnMap[primaryKey], isPrimary)
 	}
 
 	// Process all other columns
@@ -386,7 +457,7 @@ func (g *Generator) writeFilterCondition(sb *strings.Builder, columnName, fieldN
 	}
 
 	// Check if this is a DateTime column
-	isDateTime := column.BaseType == "DateTime" || column.BaseType == "DateTime64"
+	isDateTime := column.BaseType == clickhouseDateTime || column.BaseType == clickhouseDateTime64
 
 	indent := "\t"
 	if !isPrimary {
@@ -746,43 +817,43 @@ func (g *Generator) writeDateTimeFilterCases(sb *strings.Builder, columnName, fi
 		fmt.Fprintf(sb, "%s\t\t}\n", indent)
 		fmt.Fprintf(sb, "%s\t\tqb.AddNotInCondition(\"%s\", converted)\n", indent, columnName)
 		fmt.Fprintf(sb, "%s\t}\n", indent)
-	case "UInt64Filter":
-		// DateTime64 (stored as UInt64)
-		fmt.Fprintf(sb, "%scase *UInt64Filter_Eq:\n", indent)
-		fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \"=\", DateTime64Value{filter.Eq})\n", indent, columnName)
+	case "Int64Filter":
+		// DateTime64 (stored as Int64 - toUnixTimestamp64Micro returns Int64)
+		fmt.Fprintf(sb, "%scase *Int64Filter_Eq:\n", indent)
+		fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \"=\", DateTime64Value{uint64(filter.Eq)})\n", indent, columnName)
 
-		fmt.Fprintf(sb, "%scase *UInt64Filter_Ne:\n", indent)
-		fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \"!=\", DateTime64Value{filter.Ne})\n", indent, columnName)
+		fmt.Fprintf(sb, "%scase *Int64Filter_Ne:\n", indent)
+		fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \"!=\", DateTime64Value{uint64(filter.Ne)})\n", indent, columnName)
 
-		fmt.Fprintf(sb, "%scase *UInt64Filter_Lt:\n", indent)
-		fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \"<\", DateTime64Value{filter.Lt})\n", indent, columnName)
+		fmt.Fprintf(sb, "%scase *Int64Filter_Lt:\n", indent)
+		fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \"<\", DateTime64Value{uint64(filter.Lt)})\n", indent, columnName)
 
-		fmt.Fprintf(sb, "%scase *UInt64Filter_Lte:\n", indent)
-		fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \"<=\", DateTime64Value{filter.Lte})\n", indent, columnName)
+		fmt.Fprintf(sb, "%scase *Int64Filter_Lte:\n", indent)
+		fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \"<=\", DateTime64Value{uint64(filter.Lte)})\n", indent, columnName)
 
-		fmt.Fprintf(sb, "%scase *UInt64Filter_Gt:\n", indent)
-		fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \">\", DateTime64Value{filter.Gt})\n", indent, columnName)
+		fmt.Fprintf(sb, "%scase *Int64Filter_Gt:\n", indent)
+		fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \">\", DateTime64Value{uint64(filter.Gt)})\n", indent, columnName)
 
-		fmt.Fprintf(sb, "%scase *UInt64Filter_Gte:\n", indent)
-		fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \">=\", DateTime64Value{filter.Gte})\n", indent, columnName)
+		fmt.Fprintf(sb, "%scase *Int64Filter_Gte:\n", indent)
+		fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \">=\", DateTime64Value{uint64(filter.Gte)})\n", indent, columnName)
 
-		fmt.Fprintf(sb, "%scase *UInt64Filter_Between:\n", indent)
-		fmt.Fprintf(sb, "%s\tqb.AddBetweenCondition(\"%s\", DateTime64Value{filter.Between.Min}, DateTime64Value{filter.Between.Max.GetValue()})\n", indent, columnName)
+		fmt.Fprintf(sb, "%scase *Int64Filter_Between:\n", indent)
+		fmt.Fprintf(sb, "%s\tqb.AddBetweenCondition(\"%s\", DateTime64Value{uint64(filter.Between.Min)}, DateTime64Value{uint64(filter.Between.Max.GetValue())})\n", indent, columnName)
 
-		fmt.Fprintf(sb, "%scase *UInt64Filter_In:\n", indent)
+		fmt.Fprintf(sb, "%scase *Int64Filter_In:\n", indent)
 		fmt.Fprintf(sb, "%s\tif len(filter.In.Values) > 0 {\n", indent)
 		fmt.Fprintf(sb, "%s\t\tconverted := make([]interface{}, len(filter.In.Values))\n", indent)
 		fmt.Fprintf(sb, "%s\t\tfor i, v := range filter.In.Values {\n", indent)
-		fmt.Fprintf(sb, "%s\t\t\tconverted[i] = DateTime64Value{v}\n", indent)
+		fmt.Fprintf(sb, "%s\t\t\tconverted[i] = DateTime64Value{uint64(v)}\n", indent)
 		fmt.Fprintf(sb, "%s\t\t}\n", indent)
 		fmt.Fprintf(sb, "%s\t\tqb.AddInCondition(\"%s\", converted)\n", indent, columnName)
 		fmt.Fprintf(sb, "%s\t}\n", indent)
 
-		fmt.Fprintf(sb, "%scase *UInt64Filter_NotIn:\n", indent)
+		fmt.Fprintf(sb, "%scase *Int64Filter_NotIn:\n", indent)
 		fmt.Fprintf(sb, "%s\tif len(filter.NotIn.Values) > 0 {\n", indent)
 		fmt.Fprintf(sb, "%s\t\tconverted := make([]interface{}, len(filter.NotIn.Values))\n", indent)
 		fmt.Fprintf(sb, "%s\t\tfor i, v := range filter.NotIn.Values {\n", indent)
-		fmt.Fprintf(sb, "%s\t\t\tconverted[i] = DateTime64Value{v}\n", indent)
+		fmt.Fprintf(sb, "%s\t\t\tconverted[i] = DateTime64Value{uint64(v)}\n", indent)
 		fmt.Fprintf(sb, "%s\t\t}\n", indent)
 		fmt.Fprintf(sb, "%s\t\tqb.AddNotInCondition(\"%s\", converted)\n", indent, columnName)
 		fmt.Fprintf(sb, "%s\t}\n", indent)
@@ -833,49 +904,49 @@ func (g *Generator) writeDateTimeFilterCases(sb *strings.Builder, columnName, fi
 		fmt.Fprintf(sb, "%s\t\tqb.AddNotInCondition(\"%s\", converted)\n", indent, columnName)
 		fmt.Fprintf(sb, "%s\t}\n", indent)
 
-	case "NullableUInt64Filter":
-		// Nullable DateTime64 (stored as NullableUInt64)
-		fmt.Fprintf(sb, "%scase *NullableUInt64Filter_IsNull:\n", indent)
+	case "NullableInt64Filter":
+		// Nullable DateTime64 (stored as NullableInt64)
+		fmt.Fprintf(sb, "%scase *NullableInt64Filter_IsNull:\n", indent)
 		fmt.Fprintf(sb, "%s\tqb.AddIsNullCondition(\"%s\")\n", indent, columnName)
 
-		fmt.Fprintf(sb, "%scase *NullableUInt64Filter_IsNotNull:\n", indent)
+		fmt.Fprintf(sb, "%scase *NullableInt64Filter_IsNotNull:\n", indent)
 		fmt.Fprintf(sb, "%s\tqb.AddIsNotNullCondition(\"%s\")\n", indent, columnName)
 
-		fmt.Fprintf(sb, "%scase *NullableUInt64Filter_Eq:\n", indent)
-		fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \"=\", DateTime64Value{filter.Eq})\n", indent, columnName)
+		fmt.Fprintf(sb, "%scase *NullableInt64Filter_Eq:\n", indent)
+		fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \"=\", DateTime64Value{uint64(filter.Eq)})\n", indent, columnName)
 
-		fmt.Fprintf(sb, "%scase *NullableUInt64Filter_Ne:\n", indent)
-		fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \"!=\", DateTime64Value{filter.Ne})\n", indent, columnName)
+		fmt.Fprintf(sb, "%scase *NullableInt64Filter_Ne:\n", indent)
+		fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \"!=\", DateTime64Value{uint64(filter.Ne)})\n", indent, columnName)
 
-		fmt.Fprintf(sb, "%scase *NullableUInt64Filter_Lt:\n", indent)
-		fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \"<\", DateTime64Value{filter.Lt})\n", indent, columnName)
+		fmt.Fprintf(sb, "%scase *NullableInt64Filter_Lt:\n", indent)
+		fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \"<\", DateTime64Value{uint64(filter.Lt)})\n", indent, columnName)
 
-		fmt.Fprintf(sb, "%scase *NullableUInt64Filter_Lte:\n", indent)
-		fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \"<=\", DateTime64Value{filter.Lte})\n", indent, columnName)
+		fmt.Fprintf(sb, "%scase *NullableInt64Filter_Lte:\n", indent)
+		fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \"<=\", DateTime64Value{uint64(filter.Lte)})\n", indent, columnName)
 
-		fmt.Fprintf(sb, "%scase *NullableUInt64Filter_Gt:\n", indent)
-		fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \">\", DateTime64Value{filter.Gt})\n", indent, columnName)
+		fmt.Fprintf(sb, "%scase *NullableInt64Filter_Gt:\n", indent)
+		fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \">\", DateTime64Value{uint64(filter.Gt)})\n", indent, columnName)
 
-		fmt.Fprintf(sb, "%scase *NullableUInt64Filter_Gte:\n", indent)
-		fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \">=\", DateTime64Value{filter.Gte})\n", indent, columnName)
+		fmt.Fprintf(sb, "%scase *NullableInt64Filter_Gte:\n", indent)
+		fmt.Fprintf(sb, "%s\tqb.AddCondition(\"%s\", \">=\", DateTime64Value{uint64(filter.Gte)})\n", indent, columnName)
 
-		fmt.Fprintf(sb, "%scase *NullableUInt64Filter_Between:\n", indent)
-		fmt.Fprintf(sb, "%s\tqb.AddBetweenCondition(\"%s\", DateTime64Value{filter.Between.Min}, DateTime64Value{filter.Between.Max.GetValue()})\n", indent, columnName)
+		fmt.Fprintf(sb, "%scase *NullableInt64Filter_Between:\n", indent)
+		fmt.Fprintf(sb, "%s\tqb.AddBetweenCondition(\"%s\", DateTime64Value{uint64(filter.Between.Min)}, DateTime64Value{uint64(filter.Between.Max.GetValue())})\n", indent, columnName)
 
-		fmt.Fprintf(sb, "%scase *NullableUInt64Filter_In:\n", indent)
+		fmt.Fprintf(sb, "%scase *NullableInt64Filter_In:\n", indent)
 		fmt.Fprintf(sb, "%s\tif len(filter.In.Values) > 0 {\n", indent)
 		fmt.Fprintf(sb, "%s\t\tconverted := make([]interface{}, len(filter.In.Values))\n", indent)
 		fmt.Fprintf(sb, "%s\t\tfor i, v := range filter.In.Values {\n", indent)
-		fmt.Fprintf(sb, "%s\t\t\tconverted[i] = DateTime64Value{v}\n", indent)
+		fmt.Fprintf(sb, "%s\t\t\tconverted[i] = DateTime64Value{uint64(v)}\n", indent)
 		fmt.Fprintf(sb, "%s\t\t}\n", indent)
 		fmt.Fprintf(sb, "%s\t\tqb.AddInCondition(\"%s\", converted)\n", indent, columnName)
 		fmt.Fprintf(sb, "%s\t}\n", indent)
 
-		fmt.Fprintf(sb, "%scase *NullableUInt64Filter_NotIn:\n", indent)
+		fmt.Fprintf(sb, "%scase *NullableInt64Filter_NotIn:\n", indent)
 		fmt.Fprintf(sb, "%s\tif len(filter.NotIn.Values) > 0 {\n", indent)
 		fmt.Fprintf(sb, "%s\t\tconverted := make([]interface{}, len(filter.NotIn.Values))\n", indent)
 		fmt.Fprintf(sb, "%s\t\tfor i, v := range filter.NotIn.Values {\n", indent)
-		fmt.Fprintf(sb, "%s\t\t\tconverted[i] = DateTime64Value{v}\n", indent)
+		fmt.Fprintf(sb, "%s\t\t\tconverted[i] = DateTime64Value{uint64(v)}\n", indent)
 		fmt.Fprintf(sb, "%s\t\t}\n", indent)
 		fmt.Fprintf(sb, "%s\t\tqb.AddNotInCondition(\"%s\", converted)\n", indent, columnName)
 		fmt.Fprintf(sb, "%s\t}\n", indent)

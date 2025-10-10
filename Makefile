@@ -64,6 +64,19 @@ deps:
 	$(GOMOD) download
 	$(GOMOD) tidy
 
+## install-proto-deps: Install Google API proto dependencies for OpenAPI generation
+install-proto-deps:
+	@echo "📦 Installing Google API proto dependencies..."
+	@mkdir -p third_party
+	@if [ ! -d "third_party/googleapis" ]; then \
+		echo "Cloning googleapis..."; \
+		git clone --depth 1 --filter=blob:none --sparse https://github.com/googleapis/googleapis.git third_party/googleapis; \
+		cd third_party/googleapis && git sparse-checkout set google/api; \
+	else \
+		echo "googleapis already installed in third_party/googleapis"; \
+	fi
+	@echo "✅ Google API proto dependencies installed"
+
 ## install: Install the binary to GOPATH/bin
 install: build
 	$(GOCMD) install ./cmd/$(BINARY_NAME)
@@ -117,13 +130,18 @@ proto-generate:
 ## proto-compile: Run protoc to generate pb.go files
 proto-compile:
 	@echo "📦 Running protoc to generate pb.go files..."
+	@if [ ! -d "third_party/googleapis" ]; then \
+		echo "⚠️  Google API protos not found. Run 'make install-proto-deps' first."; \
+		exit 1; \
+	fi
 	protoc -I=proto \
+		-I=third_party/googleapis \
 		--go_out=paths=source_relative:proto \
 		--experimental_allow_proto3_optional \
 		proto/*.proto
 
 ## proto: Full proto generation pipeline (clean, generate, compile)
-proto: proto-clean proto-generate proto-compile
+proto: install-proto-deps proto-clean proto-generate proto-compile
 	@echo "✅ Proto generation completed!"
 	$(GOCMD) build ./...
 

@@ -314,6 +314,138 @@ func TestBuildParameterizedQueryWithProjection(t *testing.T) {
 	}
 }
 
+// TestMultiplePrimaryKeysNilChecks tests that when multiple primary keys exist
+// (from base table + projections), all primary keys are treated as optional
+// and have proper nil checks in the generated code
+func TestMultiplePrimaryKeysNilChecks(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
+
+	tests := []struct {
+		name           string
+		table          *clickhouse.Table
+		expectedChecks []string // nil checks we expect to find
+		notExpected    []string // nil checks we should NOT find (for single PK validation)
+	}{
+		{
+			name: "table with projection having different primary key should have nil checks for both",
+			table: &clickhouse.Table{
+				Name:     "fct_block_blob_first_seen_by_node",
+				Database: "default",
+				Columns: []clickhouse.Column{
+					{Name: "slot_start_date_time", Type: "DateTime", BaseType: "DateTime"},
+					{Name: "slot", Type: "UInt64", BaseType: "UInt64"},
+					{Name: "node_id", Type: "String", BaseType: "String"},
+				},
+				SortingKey: []string{"slot_start_date_time"},
+				Projections: []clickhouse.Projection{
+					{
+						Name:       "by_slot",
+						OrderByKey: []string{"slot"},
+						Type:       "NORMAL",
+					},
+				},
+			},
+			expectedChecks: []string{
+				// Both primary keys should have nil checks
+				"if req.SlotStartDateTime != nil {\n\t\tswitch filter := req.SlotStartDateTime.Filter.(type) {",
+				"if req.Slot != nil {\n\t\tswitch filter := req.Slot.Filter.(type) {",
+			},
+			notExpected: []string{
+				// Should NOT directly access .Filter without preceding nil check
+				// (the pattern below would indicate no nil check before the switch)
+				"\t// Add primary key filter\n\tswitch filter := req.SlotStartDateTime.Filter.(type) {",
+			},
+		},
+		{
+			name: "table with single primary key should NOT have nil check",
+			table: &clickhouse.Table{
+				Name:     "simple_table",
+				Database: "default",
+				Columns: []clickhouse.Column{
+					{Name: "id", Type: "UInt64", BaseType: "UInt64"},
+					{Name: "name", Type: "String", BaseType: "String"},
+				},
+				SortingKey: []string{"id"},
+			},
+			expectedChecks: []string{
+				// Single primary key should directly access .Filter (no nil check)
+				"\t// Add primary key filter\n\tswitch filter := req.Id.Filter.(type) {",
+			},
+			notExpected: []string{
+				// Should NOT have nil check for single primary key
+				"if req.Id != nil {\n\t\tswitch filter := req.Id.Filter.(type) {",
+			},
+		},
+		{
+			name: "table with projection sharing same primary key should NOT have nil check",
+			table: &clickhouse.Table{
+				Name:     "metrics",
+				Database: "default",
+				Columns: []clickhouse.Column{
+					{Name: "metric_id", Type: "UInt64", BaseType: "UInt64"},
+					{Name: "value", Type: "Float64", BaseType: "Float64"},
+				},
+				SortingKey: []string{"metric_id"},
+				Projections: []clickhouse.Projection{
+					{
+						Name:       "summary",
+						OrderByKey: []string{"metric_id"},
+						Type:       "AGGREGATE",
+					},
+				},
+			},
+			expectedChecks: []string{
+				// Same primary key, so should be required (no nil check)
+				"\t// Add primary key filter\n\tswitch filter := req.MetricId.Filter.(type) {",
+			},
+			notExpected: []string{
+				"if req.MetricId != nil {\n\t\tswitch filter := req.MetricId.Filter.(type) {",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{
+				GoPackage:       "github.com/test/pkg",
+				Package:         "test.v1",
+				OutputDir:       t.TempDir(),
+				IncludeComments: true,
+			}
+
+			gen := NewGenerator(cfg, logger)
+			var sb strings.Builder
+
+			// Get column map for type information
+			columnMap := make(map[string]*clickhouse.Column)
+			for i := range tt.table.Columns {
+				col := &tt.table.Columns[i]
+				columnMap[col.Name] = col
+			}
+
+			// Generate the filter conditions (this is what includes the nil checks)
+			gen.writeAllFilterConditions(&sb, tt.table, columnMap)
+
+			generatedCode := sb.String()
+
+			// Check expected patterns
+			for _, expected := range tt.expectedChecks {
+				assert.Contains(t, generatedCode, expected,
+					"Expected to find '%s' in generated code.\nGenerated code:\n%s",
+					expected, generatedCode)
+			}
+
+			// Check patterns that should not be present
+			for _, notExpected := range tt.notExpected {
+				assert.NotContains(t, generatedCode, notExpected,
+					"Did not expect to find '%s' in generated code.\nGenerated code:\n%s",
+					notExpected, generatedCode)
+			}
+		})
+	}
+}
+
 // Helper function to read file content
 func readFile(path string) (string, error) {
 	data, err := os.ReadFile(path)

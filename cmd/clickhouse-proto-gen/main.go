@@ -31,16 +31,19 @@ var (
 //
 //nolint:gochecknoglobals
 var (
-	dsn             string
-	tables          string
-	outputDir       string
-	pkg             string
-	goPackage       string
-	includeComments bool
-	configFile      string
-	verbose         bool
-	debug           bool
-	maxPageSize     int32
+	dsn              string
+	tables           string
+	outputDir        string
+	pkg              string
+	goPackage        string
+	includeComments  bool
+	configFile       string
+	verbose          bool
+	debug            bool
+	maxPageSize      int32
+	enableAPI        bool
+	apiBasePath      string
+	apiTablePrefixes string
 )
 
 func main() {
@@ -88,6 +91,11 @@ func init() {
 
 	// Pagination flags
 	rootCmd.Flags().Int32Var(&maxPageSize, "max-page-size", 10000, "Maximum page size for List operations (default: 10000)")
+
+	// API generation flags
+	rootCmd.Flags().BoolVar(&enableAPI, "enable-api", false, "Enable generation of HTTP annotations for REST API endpoints")
+	rootCmd.Flags().StringVar(&apiBasePath, "api-base-path", "/api/v1", "Base path for API endpoints (e.g., /api/v1)")
+	rootCmd.Flags().StringVar(&apiTablePrefixes, "api-table-prefixes", "", "Comma-separated list of table prefixes to expose via REST API (e.g., fct_,dim_)")
 }
 
 func run(_ *cobra.Command, _ []string) error {
@@ -105,7 +113,7 @@ func run(_ *cobra.Command, _ []string) error {
 	}
 
 	// Merge command-line flags (override config file values)
-	cfg.MergeFlags(dsn, outputDir, pkg, goPackage, tables, includeComments, maxPageSize)
+	cfg.MergeFlags(dsn, outputDir, pkg, goPackage, tables, includeComments, maxPageSize, enableAPI, apiBasePath, apiTablePrefixes)
 
 	// Validate configuration
 	if err := cfg.Validate(); err != nil {
