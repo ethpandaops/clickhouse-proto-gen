@@ -75,6 +75,11 @@ func (g *Generator) Generate(tables []*clickhouse.Table) error {
 		return fmt.Errorf("failed to generate common.proto: %w", err)
 	}
 
+	// Generate clickhouse/annotations.proto for custom field options
+	if err := g.GenerateAnnotationsProto(); err != nil {
+		return fmt.Errorf("failed to generate annotations.proto: %w", err)
+	}
+
 	// Generate separate file for each table (includes both message and service)
 	for _, table := range tables {
 		if err := g.generateTableFile(table); err != nil {
@@ -104,7 +109,7 @@ func (g *Generator) generateTableFile(table *clickhouse.Table) error {
 	needsWrapper := g.checkNeedsWrapper([]*clickhouse.Table{table})
 	// Check if service generation will need additional imports
 	hasService := len(table.SortingKey) > 0
-	g.writeTableHeader(&sb, needsWrapper, hasService, table.Name)
+	g.writeTableHeader(&sb, needsWrapper, hasService, table)
 
 	// Write the message definition
 	g.writeMessage(&sb, table)
@@ -173,7 +178,7 @@ func (g *Generator) tableNeedsWrapperForService(table *clickhouse.Table) bool {
 	return false
 }
 
-func (g *Generator) writeTableHeader(sb *strings.Builder, needsWrapper, hasService bool, tableName string) {
+func (g *Generator) writeTableHeader(sb *strings.Builder, needsWrapper, hasService bool, table *clickhouse.Table) {
 	sb.WriteString("syntax = \"proto3\";\n\n")
 
 	if g.config.Package != "" {
@@ -189,9 +194,11 @@ func (g *Generator) writeTableHeader(sb *strings.Builder, needsWrapper, hasServi
 	}
 
 	// Add Google API annotations if this table has API endpoints
-	if hasService && g.shouldGenerateAPI(tableName) {
+	if hasService && g.shouldGenerateAPI(table.Name) {
 		sb.WriteString("import \"google/api/annotations.proto\";\n")
 		sb.WriteString("import \"google/api/field_behavior.proto\";\n")
+		// Always import annotations for uniform required_group handling
+		sb.WriteString("import \"clickhouse/annotations.proto\";\n")
 	}
 
 	if g.config.GoPackage != "" {
@@ -250,7 +257,7 @@ func (g *Generator) writeServiceDefinitions(sb *strings.Builder, table *clickhou
 
 	// Process primary key (first sorting column) - REQUIRED
 	if len(table.SortingKey) > 0 {
-		fieldNumber = g.writePrimaryKeyField(sb, table.SortingKey[0], columnMap, processedColumns, fieldNumber, table.Name)
+		fieldNumber = g.writePrimaryKeyField(sb, table.SortingKey[0], columnMap, processedColumns, fieldNumber, table)
 	}
 
 	// Process remaining sorting columns - OPTIONAL
@@ -372,8 +379,8 @@ func (g *Generator) writeServiceDefinitions(sb *strings.Builder, table *clickhou
 	sb.WriteString("}\n")
 }
 
-// writePrimaryKeyField writes the primary key field (required) for service request
-func (g *Generator) writePrimaryKeyField(sb *strings.Builder, sortCol string, columnMap map[string]*clickhouse.Column, processedColumns map[string]bool, fieldNumber int, tableName string) int {
+// writePrimaryKeyField writes the primary key field for service request
+func (g *Generator) writePrimaryKeyField(sb *strings.Builder, sortCol string, columnMap map[string]*clickhouse.Column, processedColumns map[string]bool, fieldNumber int, table *clickhouse.Table) int {
 	column, exists := columnMap[sortCol]
 	if !exists {
 		return fieldNumber
@@ -381,19 +388,43 @@ func (g *Generator) writePrimaryKeyField(sb *strings.Builder, sortCol string, co
 
 	processedColumns[sortCol] = true
 
-	// Build comment with optional ClickHouse column comment
-	comment := fmt.Sprintf("Filter by %s (PRIMARY KEY - required)", sortCol)
-	if g.config.IncludeComments && column.Comment != "" {
-		comment = fmt.Sprintf("Filter by %s - %s (PRIMARY KEY - required)", sortCol, column.Comment)
+	// Collect projection alternative keys
+	var projectionAlternatives []string
+	for _, proj := range table.Projections {
+		if len(proj.OrderByKey) > 0 && proj.OrderByKey[0] != sortCol {
+			projectionAlternatives = append(projectionAlternatives, proj.OrderByKey[0])
+		}
+	}
+
+	// Build comment with optional ClickHouse column comment and projection alternatives
+	var comment string
+	if len(projectionAlternatives) > 0 {
+		alternativesStr := strings.Join(projectionAlternatives, ", ")
+		comment = fmt.Sprintf("Filter by %s (PRIMARY KEY - required unless using alternatives: %s)", sortCol, alternativesStr)
+		if g.config.IncludeComments && column.Comment != "" {
+			comment = fmt.Sprintf("Filter by %s - %s (PRIMARY KEY - required unless using alternatives: %s)", sortCol, column.Comment, alternativesStr)
+		}
+	} else {
+		comment = fmt.Sprintf("Filter by %s (PRIMARY KEY - required)", sortCol)
+		if g.config.IncludeComments && column.Comment != "" {
+			comment = fmt.Sprintf("Filter by %s - %s (PRIMARY KEY - required)", sortCol, column.Comment)
+		}
 	}
 
 	// Get the appropriate filter type based on column type and nullability
-	// Primary key uses filter types to allow range queries, but is marked as required
 	filterType := g.typeMapper.GetFilterTypeForColumn(column)
 	if filterType != "" {
 		fmt.Fprintf(sb, "  // %s\n", comment)
-		if g.shouldGenerateAPI(tableName) {
-			fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = REQUIRED];\n", filterType, SanitizeName(sortCol), fieldNumber)
+		if g.shouldGenerateAPI(table.Name) {
+			// Always include required_group annotation for uniform handling
+			// Mark as OPTIONAL when projections exist, REQUIRED otherwise
+			if len(projectionAlternatives) > 0 {
+				fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = OPTIONAL, (clickhouse.v1.required_group) = \"primary_key\"];\n",
+					filterType, SanitizeName(sortCol), fieldNumber)
+			} else {
+				fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = REQUIRED, (clickhouse.v1.required_group) = \"primary_key\"];\n",
+					filterType, SanitizeName(sortCol), fieldNumber)
+			}
 		} else {
 			fmt.Fprintf(sb, "  %s %s = %d;\n", filterType, SanitizeName(sortCol), fieldNumber)
 		}
@@ -403,8 +434,15 @@ func (g *Generator) writePrimaryKeyField(sb *strings.Builder, sortCol string, co
 		// For types without filter support, use the proto type directly
 		protoType := getProtoTypeForColumn(column)
 		fmt.Fprintf(sb, "  // %s\n", comment)
-		if g.shouldGenerateAPI(tableName) {
-			fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = REQUIRED];\n", protoType, SanitizeName(sortCol), fieldNumber)
+		if g.shouldGenerateAPI(table.Name) {
+			// Always include required_group annotation for uniform handling
+			if len(projectionAlternatives) > 0 {
+				fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = OPTIONAL, (clickhouse.v1.required_group) = \"primary_key\"];\n",
+					protoType, SanitizeName(sortCol), fieldNumber)
+			} else {
+				fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = REQUIRED, (clickhouse.v1.required_group) = \"primary_key\"];\n",
+					protoType, SanitizeName(sortCol), fieldNumber)
+			}
 		} else {
 			fmt.Fprintf(sb, "  %s %s = %d;\n", protoType, SanitizeName(sortCol), fieldNumber)
 		}
@@ -446,7 +484,12 @@ func (g *Generator) writeSortingKeyField(sb *strings.Builder, sortCol string, co
 		wrapperType := g.typeMapper.getWrapperTypeForColumn(column)
 		fmt.Fprintf(sb, "  // %s\n", comment)
 		if g.shouldGenerateAPI(tableName) {
-			fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = OPTIONAL];\n", wrapperType, SanitizeName(sortCol), fieldNumber)
+			// Don't add OPTIONAL to repeated fields - arrays are never null, just empty
+			if strings.HasPrefix(wrapperType, "repeated ") {
+				fmt.Fprintf(sb, "  %s %s = %d;\n", wrapperType, SanitizeName(sortCol), fieldNumber)
+			} else {
+				fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = OPTIONAL];\n", wrapperType, SanitizeName(sortCol), fieldNumber)
+			}
 		} else {
 			fmt.Fprintf(sb, "  %s %s = %d;\n", wrapperType, SanitizeName(sortCol), fieldNumber)
 		}
@@ -459,15 +502,33 @@ func (g *Generator) writeSortingKeyField(sb *strings.Builder, sortCol string, co
 
 // writeRemainingColumnFilters writes filter fields for non-sorting columns
 func (g *Generator) writeRemainingColumnFilters(sb *strings.Builder, table *clickhouse.Table, processedColumns map[string]bool, fieldNumber int) int {
+	// Get the base primary key for projection alternatives
+	var basePrimaryKey string
+	if len(table.SortingKey) > 0 {
+		basePrimaryKey = table.SortingKey[0]
+	}
+
 	for _, column := range table.Columns {
 		if processedColumns[column.Name] {
 			continue // Already processed as sorting column
 		}
 
+		// Check if this column is a projection primary key
+		projectionInfo := g.getProjectionInfo(table, column.Name)
+
 		// Build comment with optional ClickHouse column comment
-		comment := fmt.Sprintf("Filter by %s (optional)", column.Name)
-		if g.config.IncludeComments && column.Comment != "" {
-			comment = fmt.Sprintf("Filter by %s - %s (optional)", column.Name, column.Comment)
+		var comment string
+		if projectionInfo != nil {
+			// This is a projection primary key - alternative to base primary key
+			comment = fmt.Sprintf("Filter by %s (PROJECTION: %s - alternative to %s)", column.Name, projectionInfo.Name, basePrimaryKey)
+			if g.config.IncludeComments && column.Comment != "" {
+				comment = fmt.Sprintf("Filter by %s - %s (PROJECTION: %s - alternative to %s)", column.Name, column.Comment, projectionInfo.Name, basePrimaryKey)
+			}
+		} else {
+			comment = fmt.Sprintf("Filter by %s (optional)", column.Name)
+			if g.config.IncludeComments && column.Comment != "" {
+				comment = fmt.Sprintf("Filter by %s - %s (optional)", column.Name, column.Comment)
+			}
 		}
 
 		// Get the appropriate filter type based on column type and nullability
@@ -475,7 +536,13 @@ func (g *Generator) writeRemainingColumnFilters(sb *strings.Builder, table *clic
 		if filterType != "" {
 			fmt.Fprintf(sb, "  // %s\n", comment)
 			if g.shouldGenerateAPI(table.Name) {
-				fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = OPTIONAL];\n", filterType, SanitizeName(column.Name), fieldNumber)
+				// Add projection annotations if this is a projection key
+				if projectionInfo != nil {
+					fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = OPTIONAL, (clickhouse.v1.projection_name) = \"%s\", (clickhouse.v1.projection_alternative_for) = \"%s\", (clickhouse.v1.required_group) = \"primary_key\"];\n",
+						filterType, SanitizeName(column.Name), fieldNumber, projectionInfo.Name, basePrimaryKey)
+				} else {
+					fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = OPTIONAL];\n", filterType, SanitizeName(column.Name), fieldNumber)
+				}
 			} else {
 				fmt.Fprintf(sb, "  %s %s = %d;\n", filterType, SanitizeName(column.Name), fieldNumber)
 			}
@@ -485,7 +552,15 @@ func (g *Generator) writeRemainingColumnFilters(sb *strings.Builder, table *clic
 			wrapperType := g.typeMapper.getWrapperTypeForColumn(&column)
 			fmt.Fprintf(sb, "  // %s\n", comment)
 			if g.shouldGenerateAPI(table.Name) {
-				fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = OPTIONAL];\n", wrapperType, SanitizeName(column.Name), fieldNumber)
+				// Don't add OPTIONAL to repeated fields - arrays are never null, just empty
+				if strings.HasPrefix(wrapperType, "repeated ") {
+					fmt.Fprintf(sb, "  %s %s = %d;\n", wrapperType, SanitizeName(column.Name), fieldNumber)
+				} else if projectionInfo != nil {
+					fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = OPTIONAL, (clickhouse.v1.projection_name) = \"%s\", (clickhouse.v1.projection_alternative_for) = \"%s\", (clickhouse.v1.required_group) = \"primary_key\"];\n",
+						wrapperType, SanitizeName(column.Name), fieldNumber, projectionInfo.Name, basePrimaryKey)
+				} else {
+					fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = OPTIONAL];\n", wrapperType, SanitizeName(column.Name), fieldNumber)
+				}
 			} else {
 				fmt.Fprintf(sb, "  %s %s = %d;\n", wrapperType, SanitizeName(column.Name), fieldNumber)
 			}
@@ -494,6 +569,17 @@ func (g *Generator) writeRemainingColumnFilters(sb *strings.Builder, table *clic
 	}
 
 	return fieldNumber
+}
+
+// getProjectionInfo returns the projection if the column is a projection primary key, nil otherwise
+func (g *Generator) getProjectionInfo(table *clickhouse.Table, columnName string) *clickhouse.Projection {
+	for i := range table.Projections {
+		proj := &table.Projections[i]
+		if len(proj.OrderByKey) > 0 && proj.OrderByKey[0] == columnName {
+			return proj
+		}
+	}
+	return nil
 }
 
 func (g *Generator) writeField(sb *strings.Builder, field *ProtoField) {

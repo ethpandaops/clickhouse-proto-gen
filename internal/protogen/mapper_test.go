@@ -159,7 +159,7 @@ func TestTypeMapper_MapType(t *testing.T) {
 				Type:     "DateTime64(3)",
 				BaseType: "DateTime64",
 			},
-			expected: "uint64",
+			expected: "int64",
 		},
 
 		// Boolean type

@@ -64,9 +64,9 @@ func (tm *TypeMapper) MapType(column *clickhouse.Column) (string, error) {
 func (tm *TypeMapper) mapBaseType(baseType, fullType string) string {
 	// Handle DateTime64 specially to check precision
 	if baseType == "DateTime64" {
-		// DateTime64 always uses uint64 regardless of precision
+		// DateTime64 uses int64 because toUnixTimestamp64Micro() returns Int64
 		// The precision affects interpretation but not storage type
-		return protoUInt64
+		return protoInt64
 	}
 
 	// Handle numeric types

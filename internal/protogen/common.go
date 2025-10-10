@@ -2,6 +2,7 @@ package protogen
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -371,4 +372,55 @@ func (g *Generator) writeCommonTypes(sb *strings.Builder) {
 	sb.WriteString("  ASC = 0;\n")
 	sb.WriteString("  DESC = 1;\n")
 	sb.WriteString("}\n")
+}
+
+// GenerateAnnotationsProto generates the clickhouse/annotations.proto file with custom field options
+func (g *Generator) GenerateAnnotationsProto() error {
+	// Create clickhouse subdirectory in output dir
+	clickhouseDir := filepath.Join(g.config.OutputDir, "clickhouse")
+	if err := os.MkdirAll(clickhouseDir, 0o750); err != nil {
+		return fmt.Errorf("failed to create clickhouse directory: %w", err)
+	}
+
+	filename := filepath.Join(clickhouseDir, "annotations.proto")
+
+	var sb strings.Builder
+
+	// Write header
+	sb.WriteString("syntax = \"proto3\";\n\n")
+
+	// Annotations always use a fixed package name, not the user's configured package
+	// This allows generated files to reference extensions as (clickhouse.v1.projection_name)
+	sb.WriteString("package clickhouse.v1;\n")
+
+	sb.WriteString("\nimport \"google/protobuf/descriptor.proto\";\n")
+
+	// Use the user's configured go_package as the base for the annotations package
+	// Since annotations.proto is in clickhouse/ subdirectory, append /clickhouse to the package
+	if g.config.GoPackage != "" {
+		// Remove trailing slash if present
+		goPackage := strings.TrimSuffix(g.config.GoPackage, "/")
+		fmt.Fprintf(&sb, "\noption go_package = \"%s/clickhouse\";\n", goPackage)
+	}
+
+	sb.WriteString("\n")
+
+	// Write custom field options
+	sb.WriteString("extend google.protobuf.FieldOptions {\n")
+	sb.WriteString("  // Indicates this field can substitute for another field (typically a primary key).\n")
+	sb.WriteString("  // Value is the field name this can substitute for.\n")
+	sb.WriteString("  // Example: slot can substitute for slot_start_date_time when using a projection.\n")
+	sb.WriteString("  string projection_alternative_for = 50001;\n\n")
+
+	sb.WriteString("  // Name of the ClickHouse projection this field belongs to.\n")
+	sb.WriteString("  // This helps identify which projection enables this alternative key.\n")
+	sb.WriteString("  string projection_name = 50002;\n\n")
+
+	sb.WriteString("  // Group name for \"at least one required\" validation.\n")
+	sb.WriteString("  // All fields with the same required_group value form an OR constraint.\n")
+	sb.WriteString("  // Example: All primary key alternatives should share the same required_group.\n")
+	sb.WriteString("  string required_group = 50003;\n")
+	sb.WriteString("}\n")
+
+	return g.writeFile(filename, sb.String())
 }
