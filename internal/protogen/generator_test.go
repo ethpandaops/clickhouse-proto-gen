@@ -817,8 +817,9 @@ func TestGenerator_GenerateProtoWithAPIAnnotations(t *testing.T) {
 	// Verify pipe-separated comment format for service
 	assert.Contains(t, fctContentStr, " | Retrieve paginated results with optional filtering")
 
-	// Verify field_behavior annotations
-	assert.Contains(t, fctContentStr, "[(google.api.field_behavior) = REQUIRED]")
+	// Verify field_behavior annotations (primary key now includes required_group)
+	assert.Contains(t, fctContentStr, "(google.api.field_behavior) = REQUIRED")
+	assert.Contains(t, fctContentStr, "(clickhouse.v1.required_group) = \"primary_key\"")
 	assert.Contains(t, fctContentStr, "[(google.api.field_behavior) = OPTIONAL]")
 
 	// Verify column comments are included in filter field descriptions
@@ -1013,12 +1014,18 @@ func TestGenerator_NoProjectionAnnotationsWithoutProjections(t *testing.T) {
 
 	// Verify primary key is still marked REQUIRED (no projections)
 	assert.Contains(t, contentStr, "Filter by id - Record ID (PRIMARY KEY - required)")
-	assert.Contains(t, contentStr, "[(google.api.field_behavior) = REQUIRED]")
+	assert.Contains(t, contentStr, "[(google.api.field_behavior) = REQUIRED, (clickhouse.v1.required_group) = \"primary_key\"]")
 
-	// Verify NO projection annotations
+	// Verify NO projection-specific annotations (only required_group should be present)
 	assert.NotContains(t, contentStr, "projection_name")
 	assert.NotContains(t, contentStr, "projection_alternative_for")
-	assert.NotContains(t, contentStr, "required_group")
+
+	// Verify required_group IS present for uniform handling
+	assert.Contains(t, contentStr, "(clickhouse.v1.required_group) = \"primary_key\"")
+
+	// Verify annotations.proto IS imported (for required_group)
+	assert.Contains(t, contentStr, "import \"clickhouse/annotations.proto\"",
+		"Tables should import annotations.proto for uniform required_group handling")
 
 	// Verify regular column remains OPTIONAL
 	assert.Contains(t, contentStr, "Filter by value - Record value (optional)")

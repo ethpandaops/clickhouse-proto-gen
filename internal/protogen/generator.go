@@ -109,7 +109,7 @@ func (g *Generator) generateTableFile(table *clickhouse.Table) error {
 	needsWrapper := g.checkNeedsWrapper([]*clickhouse.Table{table})
 	// Check if service generation will need additional imports
 	hasService := len(table.SortingKey) > 0
-	g.writeTableHeader(&sb, needsWrapper, hasService, table.Name)
+	g.writeTableHeader(&sb, needsWrapper, hasService, table)
 
 	// Write the message definition
 	g.writeMessage(&sb, table)
@@ -178,7 +178,7 @@ func (g *Generator) tableNeedsWrapperForService(table *clickhouse.Table) bool {
 	return false
 }
 
-func (g *Generator) writeTableHeader(sb *strings.Builder, needsWrapper, hasService bool, tableName string) {
+func (g *Generator) writeTableHeader(sb *strings.Builder, needsWrapper, hasService bool, table *clickhouse.Table) {
 	sb.WriteString("syntax = \"proto3\";\n\n")
 
 	if g.config.Package != "" {
@@ -194,9 +194,10 @@ func (g *Generator) writeTableHeader(sb *strings.Builder, needsWrapper, hasServi
 	}
 
 	// Add Google API annotations if this table has API endpoints
-	if hasService && g.shouldGenerateAPI(tableName) {
+	if hasService && g.shouldGenerateAPI(table.Name) {
 		sb.WriteString("import \"google/api/annotations.proto\";\n")
 		sb.WriteString("import \"google/api/field_behavior.proto\";\n")
+		// Always import annotations for uniform required_group handling
 		sb.WriteString("import \"clickhouse/annotations.proto\";\n")
 	}
 
@@ -415,13 +416,13 @@ func (g *Generator) writePrimaryKeyField(sb *strings.Builder, sortCol string, co
 	if filterType != "" {
 		fmt.Fprintf(sb, "  // %s\n", comment)
 		if g.shouldGenerateAPI(table.Name) {
-			// When table has projections, mark as OPTIONAL with required_group annotation
-			// Otherwise, mark as REQUIRED
+			// Always include required_group annotation for uniform handling
+			// Mark as OPTIONAL when projections exist, REQUIRED otherwise
 			if len(projectionAlternatives) > 0 {
 				fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = OPTIONAL, (clickhouse.v1.required_group) = \"primary_key\"];\n",
 					filterType, SanitizeName(sortCol), fieldNumber)
 			} else {
-				fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = REQUIRED];\n",
+				fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = REQUIRED, (clickhouse.v1.required_group) = \"primary_key\"];\n",
 					filterType, SanitizeName(sortCol), fieldNumber)
 			}
 		} else {
@@ -434,11 +435,12 @@ func (g *Generator) writePrimaryKeyField(sb *strings.Builder, sortCol string, co
 		protoType := getProtoTypeForColumn(column)
 		fmt.Fprintf(sb, "  // %s\n", comment)
 		if g.shouldGenerateAPI(table.Name) {
+			// Always include required_group annotation for uniform handling
 			if len(projectionAlternatives) > 0 {
 				fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = OPTIONAL, (clickhouse.v1.required_group) = \"primary_key\"];\n",
 					protoType, SanitizeName(sortCol), fieldNumber)
 			} else {
-				fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = REQUIRED];\n",
+				fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = REQUIRED, (clickhouse.v1.required_group) = \"primary_key\"];\n",
 					protoType, SanitizeName(sortCol), fieldNumber)
 			}
 		} else {
