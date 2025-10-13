@@ -13,6 +13,10 @@ import (
 const (
 	clickhouseDateTime   = "DateTime"
 	clickhouseDateTime64 = "DateTime64"
+	clickhouseDate       = "Date"
+	clickhouseDate32     = "Date32"
+	clickhouseUInt8      = "UInt8"
+	clickhouseUInt16     = "UInt16"
 )
 
 // GenerateSQLHelpers generates SQL query builder helpers for all tables
@@ -115,6 +119,7 @@ func needsStringConversion(col *clickhouse.Column) bool {
 // based on the column's type. DateTime types are wrapped with transformation
 // functions to return Unix timestamps. Large integer types are wrapped with
 // toString() to convert them to strings for protobuf compatibility.
+// UInt8/UInt16 are converted to UInt32, and Date/Date32 are converted to string.
 func getSelectColumnExpression(col *clickhouse.Column) string {
 	// Handle Array(DateTime) types with arrayMap transformation
 	if col.IsArray && col.BaseType == clickhouseDateTime {
@@ -124,12 +129,32 @@ func getSelectColumnExpression(col *clickhouse.Column) string {
 		return fmt.Sprintf("arrayMap(x -> toUnixTimestamp64Micro(x), `%s`) AS `%s`", col.Name, col.Name)
 	}
 
+	// Handle Array(Date) and Array(Date32) types with arrayMap transformation
+	if col.IsArray && (col.BaseType == clickhouseDate || col.BaseType == clickhouseDate32) {
+		return fmt.Sprintf("arrayMap(x -> toString(x), `%s`) AS `%s`", col.Name, col.Name)
+	}
+
+	// Handle Array(UInt8) and Array(UInt16) types with arrayMap transformation
+	if col.IsArray && (col.BaseType == clickhouseUInt8 || col.BaseType == clickhouseUInt16) {
+		return fmt.Sprintf("arrayMap(x -> toUInt32(x), `%s`) AS `%s`", col.Name, col.Name)
+	}
+
 	// Handle regular DateTime types
 	if col.BaseType == clickhouseDateTime {
 		return fmt.Sprintf("toUnixTimestamp(`%s`) AS `%s`", col.Name, col.Name)
 	}
 	if col.BaseType == clickhouseDateTime64 {
 		return fmt.Sprintf("toUnixTimestamp64Micro(`%s`) AS `%s`", col.Name, col.Name)
+	}
+
+	// Handle Date and Date32 types (convert to string for Go scanning)
+	if col.BaseType == clickhouseDate || col.BaseType == clickhouseDate32 {
+		return fmt.Sprintf("toString(`%s`) AS `%s`", col.Name, col.Name)
+	}
+
+	// Handle UInt8 and UInt16 types (convert to UInt32 for Go scanning)
+	if col.BaseType == clickhouseUInt8 || col.BaseType == clickhouseUInt16 {
+		return fmt.Sprintf("toUInt32(`%s`) AS `%s`", col.Name, col.Name)
 	}
 
 	// Handle large integer types that need string conversion
