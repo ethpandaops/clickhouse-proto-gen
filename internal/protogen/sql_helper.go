@@ -17,6 +17,11 @@ const (
 	clickhouseDate32     = "Date32"
 	clickhouseUInt8      = "UInt8"
 	clickhouseUInt16     = "UInt16"
+	clickhouseDecimal    = "Decimal"
+	clickhouseDecimal32  = "Decimal32"
+	clickhouseDecimal64  = "Decimal64"
+	clickhouseDecimal128 = "Decimal128"
+	clickhouseDecimal256 = "Decimal256"
 )
 
 // GenerateSQLHelpers generates SQL query builder helpers for all tables
@@ -115,27 +120,83 @@ func needsStringConversion(col *clickhouse.Column) bool {
 	return false
 }
 
+// hasNullableArrayElements checks if an array column has nullable elements.
+// Example: Array(Nullable(UInt64)) returns true, Array(UInt64) returns false.
+func hasNullableArrayElements(col *clickhouse.Column) bool {
+	if !col.IsArray {
+		return false
+	}
+	return strings.Contains(col.Type, "Array(Nullable(")
+}
+
+// getDefaultValueForType returns the appropriate default value for a type to use with coalesce().
+func getDefaultValueForType(baseType string) string {
+	// For numeric types, default to 0
+	numericTypes := []string{
+		"UInt8", "UInt16", "UInt32", "UInt64", "UInt128", "UInt256",
+		"Int8", "Int16", "Int32", "Int64", "Int128", "Int256",
+		"Float32", "Float64",
+		"Decimal", "Decimal32", "Decimal64", "Decimal128", "Decimal256",
+	}
+	for _, t := range numericTypes {
+		if strings.HasPrefix(baseType, t) {
+			return "0"
+		}
+	}
+
+	// For DateTime types, default to 0 (Unix epoch)
+	if strings.HasPrefix(baseType, "DateTime") {
+		return "0"
+	}
+
+	// For Date types, default to epoch date
+	if baseType == "Date" || baseType == "Date32" {
+		return "'1970-01-01'"
+	}
+
+	// For string types, default to empty string
+	return "''"
+}
+
 // getSelectColumnExpression generates the appropriate SELECT column expression
 // based on the column's type. DateTime types are wrapped with transformation
 // functions to return Unix timestamps. Large integer types are wrapped with
 // toString() to convert them to strings for protobuf compatibility.
 // UInt8/UInt16 are converted to UInt32, and Date/Date32 are converted to string.
+// Arrays with nullable elements are wrapped with coalesce() to replace NULLs.
 func getSelectColumnExpression(col *clickhouse.Column) string {
+	hasNullable := hasNullableArrayElements(col)
+
 	// Handle Array(DateTime) types with arrayMap transformation
 	if col.IsArray && col.BaseType == clickhouseDateTime {
+		if hasNullable {
+			defVal := getDefaultValueForType(col.BaseType)
+			return fmt.Sprintf("arrayMap(x -> toUnixTimestamp(coalesce(x, %s)), `%s`) AS `%s`", defVal, col.Name, col.Name)
+		}
 		return fmt.Sprintf("arrayMap(x -> toUnixTimestamp(x), `%s`) AS `%s`", col.Name, col.Name)
 	}
 	if col.IsArray && col.BaseType == clickhouseDateTime64 {
+		if hasNullable {
+			defVal := getDefaultValueForType(col.BaseType)
+			return fmt.Sprintf("arrayMap(x -> toUnixTimestamp64Micro(coalesce(x, %s)), `%s`) AS `%s`", defVal, col.Name, col.Name)
+		}
 		return fmt.Sprintf("arrayMap(x -> toUnixTimestamp64Micro(x), `%s`) AS `%s`", col.Name, col.Name)
 	}
 
 	// Handle Array(Date) and Array(Date32) types with arrayMap transformation
 	if col.IsArray && (col.BaseType == clickhouseDate || col.BaseType == clickhouseDate32) {
+		if hasNullable {
+			defVal := getDefaultValueForType(col.BaseType)
+			return fmt.Sprintf("arrayMap(x -> toString(coalesce(x, %s)), `%s`) AS `%s`", defVal, col.Name, col.Name)
+		}
 		return fmt.Sprintf("arrayMap(x -> toString(x), `%s`) AS `%s`", col.Name, col.Name)
 	}
 
 	// Handle Array(UInt8) and Array(UInt16) types with arrayMap transformation
 	if col.IsArray && (col.BaseType == clickhouseUInt8 || col.BaseType == clickhouseUInt16) {
+		if hasNullable {
+			return fmt.Sprintf("arrayMap(x -> toUInt32(coalesce(x, 0)), `%s`) AS `%s`", col.Name, col.Name)
+		}
 		return fmt.Sprintf("arrayMap(x -> toUInt32(x), `%s`) AS `%s`", col.Name, col.Name)
 	}
 
@@ -157,12 +218,35 @@ func getSelectColumnExpression(col *clickhouse.Column) string {
 		return fmt.Sprintf("toUInt32(`%s`) AS `%s`", col.Name, col.Name)
 	}
 
-	// Handle large integer types that need string conversion
-	if needsStringConversion(col) {
+	// Handle Decimal types (convert to string to preserve precision)
+	if col.BaseType == clickhouseDecimal || col.BaseType == clickhouseDecimal32 ||
+		col.BaseType == clickhouseDecimal64 || col.BaseType == clickhouseDecimal128 ||
+		col.BaseType == clickhouseDecimal256 {
 		if col.IsArray {
+			if hasNullable {
+				return fmt.Sprintf("arrayMap(x -> toString(coalesce(x, 0)), `%s`) AS `%s`", col.Name, col.Name)
+			}
 			return fmt.Sprintf("arrayMap(x -> toString(x), `%s`) AS `%s`", col.Name, col.Name)
 		}
 		return fmt.Sprintf("toString(`%s`) AS `%s`", col.Name, col.Name)
+	}
+
+	// Handle large integer types that need string conversion
+	if needsStringConversion(col) {
+		if col.IsArray {
+			if hasNullable {
+				return fmt.Sprintf("arrayMap(x -> toString(coalesce(x, 0)), `%s`) AS `%s`", col.Name, col.Name)
+			}
+			return fmt.Sprintf("arrayMap(x -> toString(x), `%s`) AS `%s`", col.Name, col.Name)
+		}
+		return fmt.Sprintf("toString(`%s`) AS `%s`", col.Name, col.Name)
+	}
+
+	// Handle any remaining arrays with nullable elements that don't need type conversion
+	// but still need NULL handling (e.g., Array(Nullable(UInt64)))
+	if col.IsArray && hasNullable {
+		defVal := getDefaultValueForType(col.BaseType)
+		return fmt.Sprintf("arrayMap(x -> coalesce(x, %s), `%s`) AS `%s`", defVal, col.Name, col.Name)
 	}
 
 	// Default: return column name as-is

@@ -176,10 +176,27 @@ func (tm *TypeMapper) mapSpecialType(baseType, fullType string) string {
 		}
 		return protoString
 
-	// Map type
+	// Map type - use protobuf's native map syntax
 	case "Map":
-		// Maps in protobuf require special handling
-		return protoString // Represent as JSON string for now
+		keyType, valueType := tm.parseMapType(fullType)
+		if keyType == "" || valueType == "" {
+			// Invalid map format, fallback to string
+			return protoString
+		}
+
+		// Map ClickHouse key type to protobuf key type
+		protoKeyType := tm.mapClickHouseTypeToProto(keyType)
+		if !tm.isValidProtoMapKey(protoKeyType) {
+			// Protobuf only allows certain key types for maps
+			// If invalid, fallback to string representation
+			return protoString
+		}
+
+		// Map ClickHouse value type to protobuf value type
+		protoValueType := tm.mapClickHouseTypeToProto(valueType)
+
+		// Return protobuf map syntax: map<key_type, value_type>
+		return fmt.Sprintf("map<%s, %s>", protoKeyType, protoValueType)
 
 	// Tuple type
 	case "Tuple":
@@ -188,6 +205,38 @@ func (tm *TypeMapper) mapSpecialType(baseType, fullType string) string {
 	}
 
 	return ""
+}
+
+// mapClickHouseTypeToProto maps a ClickHouse type string to its protobuf equivalent
+func (tm *TypeMapper) mapClickHouseTypeToProto(chType string) string {
+	// Handle parameterized types by extracting base type
+	if idx := strings.Index(chType, "("); idx > 0 {
+		chType = chType[:idx]
+	}
+
+	return tm.mapBaseType(chType, chType)
+}
+
+// isValidProtoMapKey checks if a protobuf type is a valid map key type
+// Protobuf spec allows: int32, int64, uint32, uint64, sint32, sint64,
+// fixed32, fixed64, sfixed32, sfixed64, bool, string
+func (tm *TypeMapper) isValidProtoMapKey(protoType string) bool {
+	validKeys := map[string]bool{
+		"int32":    true,
+		"int64":    true,
+		"uint32":   true,
+		"uint64":   true,
+		"sint32":   true,
+		"sint64":   true,
+		"fixed32":  true,
+		"fixed64":  true,
+		"sfixed32": true,
+		"sfixed64": true,
+		"bool":     true,
+		"string":   true,
+	}
+
+	return validKeys[protoType]
 }
 
 func extractInnerType(wrappedType string) string {

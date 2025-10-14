@@ -276,7 +276,25 @@ func TestTypeMapper_MapType(t *testing.T) {
 				Type:     "Map(String, Int32)",
 				BaseType: "Map",
 			},
-			expected: "string",
+			expected: "map<string, int32>",
+		},
+		{
+			name: "Map(String, String)",
+			column: clickhouse.Column{
+				Name:     "test_map_string_string",
+				Type:     "Map(String, String)",
+				BaseType: "Map",
+			},
+			expected: "map<string, string>",
+		},
+		{
+			name: "Map(String, UInt64)",
+			column: clickhouse.Column{
+				Name:     "test_map_string_uint64",
+				Type:     "Map(String, UInt64)",
+				BaseType: "Map",
+			},
+			expected: "map<string, uint64>",
 		},
 		{
 			name: "Tuple(String, Int32, Float64)",
