@@ -187,6 +187,49 @@ func TestGetSelectColumnExpression(t *testing.T) {
 			expected: "arrayMap(x -> toString(x), `hashes`) AS `hashes`",
 		},
 
+		// FixedString conversions (zero-byte handling)
+		{
+			name: "FixedString(32) with NULLIF",
+			column: clickhouse.Column{
+				Name:     "hash",
+				Type:     "FixedString(32)",
+				BaseType: "FixedString",
+				IsArray:  false,
+			},
+			expected: "NULLIF(`hash`, repeat('\\x00', 32)) AS `hash`",
+		},
+		{
+			name: "FixedString(66) with NULLIF",
+			column: clickhouse.Column{
+				Name:     "execution_payload_block_hash",
+				Type:     "FixedString(66)",
+				BaseType: "FixedString",
+				IsArray:  false,
+			},
+			expected: "NULLIF(`execution_payload_block_hash`, repeat('\\x00', 66)) AS `execution_payload_block_hash`",
+		},
+		{
+			name: "Nullable(FixedString(32)) with NULLIF",
+			column: clickhouse.Column{
+				Name:       "nullable_hash",
+				Type:       "Nullable(FixedString(32))",
+				BaseType:   "FixedString",
+				IsNullable: true,
+				IsArray:    false,
+			},
+			expected: "NULLIF(`nullable_hash`, repeat('\\x00', 32)) AS `nullable_hash`",
+		},
+		{
+			name: "FixedString(10) with NULLIF",
+			column: clickhouse.Column{
+				Name:     "short_hash",
+				Type:     "FixedString(10)",
+				BaseType: "FixedString",
+				IsArray:  false,
+			},
+			expected: "NULLIF(`short_hash`, repeat('\\x00', 10)) AS `short_hash`",
+		},
+
 		// Regular types (no conversion)
 		{
 			name: "String - no conversion",
