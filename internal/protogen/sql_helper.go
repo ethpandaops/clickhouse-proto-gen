@@ -165,6 +165,8 @@ func getDefaultValueForType(baseType string) string {
 // UInt8/UInt16 are converted to UInt32, and Date/Date32 are converted to string.
 // Arrays with nullable elements are wrapped with coalesce() to replace NULLs.
 // FixedString fields with zero bytes are converted to NULL.
+//
+//nolint:gocyclo // High complexity is inherent to type mapping logic
 func getSelectColumnExpression(col *clickhouse.Column) string {
 	hasNullable := hasNullableArrayElements(col)
 
