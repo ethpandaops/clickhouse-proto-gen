@@ -540,7 +540,7 @@ func (tm *TypeMapper) GetFilterTypeForColumn(column *clickhouse.Column) string {
 
 // IsFixedString checks if a ClickHouse type is FixedString and returns its length
 // Handles both FixedString(N) and Nullable(FixedString(N))
-func IsFixedString(chType string) (bool, int) {
+func IsFixedString(chType string) (isFixed bool, length int) {
 	// Strip Nullable wrapper if present
 	typeToCheck := chType
 	if strings.HasPrefix(typeToCheck, "Nullable(") && strings.HasSuffix(typeToCheck, ")") {
