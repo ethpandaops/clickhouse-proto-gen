@@ -839,3 +839,75 @@ func TestTypeMapper_GetWrapperTypeForColumn(t *testing.T) {
 		})
 	}
 }
+
+func TestIsFixedString(t *testing.T) {
+	tests := []struct {
+		name           string
+		chType         string
+		expectedIsFixed bool
+		expectedLength int
+	}{
+		{
+			name:           "FixedString(32)",
+			chType:         "FixedString(32)",
+			expectedIsFixed: true,
+			expectedLength: 32,
+		},
+		{
+			name:           "FixedString(66)",
+			chType:         "FixedString(66)",
+			expectedIsFixed: true,
+			expectedLength: 66,
+		},
+		{
+			name:           "FixedString(10)",
+			chType:         "FixedString(10)",
+			expectedIsFixed: true,
+			expectedLength: 10,
+		},
+		{
+			name:           "Nullable(FixedString(32))",
+			chType:         "Nullable(FixedString(32))",
+			expectedIsFixed: true,
+			expectedLength: 32,
+		},
+		{
+			name:           "Nullable(FixedString(66))",
+			chType:         "Nullable(FixedString(66))",
+			expectedIsFixed: true,
+			expectedLength: 66,
+		},
+		{
+			name:           "String",
+			chType:         "String",
+			expectedIsFixed: false,
+			expectedLength: 0,
+		},
+		{
+			name:           "Nullable(String)",
+			chType:         "Nullable(String)",
+			expectedIsFixed: false,
+			expectedLength: 0,
+		},
+		{
+			name:           "Int32",
+			chType:         "Int32",
+			expectedIsFixed: false,
+			expectedLength: 0,
+		},
+		{
+			name:           "Invalid FixedString",
+			chType:         "FixedString(abc)",
+			expectedIsFixed: false,
+			expectedLength: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			isFixed, length := IsFixedString(tt.chType)
+			assert.Equal(t, tt.expectedIsFixed, isFixed, "IsFixed mismatch for %s", tt.chType)
+			assert.Equal(t, tt.expectedLength, length, "Length mismatch for %s", tt.chType)
+		})
+	}
+}

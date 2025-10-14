@@ -164,8 +164,20 @@ func getDefaultValueForType(baseType string) string {
 // toString() to convert them to strings for protobuf compatibility.
 // UInt8/UInt16 are converted to UInt32, and Date/Date32 are converted to string.
 // Arrays with nullable elements are wrapped with coalesce() to replace NULLs.
+// FixedString fields with zero bytes are converted to NULL.
+//
+//nolint:gocyclo // High complexity is inherent to type mapping logic
 func getSelectColumnExpression(col *clickhouse.Column) string {
 	hasNullable := hasNullableArrayElements(col)
+
+	// Handle FixedString types - convert zero-byte strings to NULL
+	// This prevents confusing zero-byte string output in API responses
+	// Check BaseType first (handles Nullable(FixedString(N))), then parse full Type for length
+	if col.BaseType == "FixedString" {
+		if isFixed, length := IsFixedString(col.Type); isFixed {
+			return fmt.Sprintf("NULLIF(`%s`, repeat('\\x00', %d)) AS `%s`", col.Name, length, col.Name)
+		}
+	}
 
 	// Handle Array(DateTime) types with arrayMap transformation
 	if col.IsArray && col.BaseType == clickhouseDateTime {

@@ -3,6 +3,7 @@ package protogen
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/ethpandaops/clickhouse-proto-gen/internal/clickhouse"
@@ -535,4 +536,26 @@ func (tm *TypeMapper) GetFilterTypeForColumn(column *clickhouse.Column) string {
 
 	// Handle scalar types
 	return tm.getScalarFilterType(column)
+}
+
+// IsFixedString checks if a ClickHouse type is FixedString and returns its length
+// Handles both FixedString(N) and Nullable(FixedString(N))
+func IsFixedString(chType string) (isFixed bool, length int) {
+	// Strip Nullable wrapper if present
+	typeToCheck := chType
+	if strings.HasPrefix(typeToCheck, "Nullable(") && strings.HasSuffix(typeToCheck, ")") {
+		typeToCheck = typeToCheck[9 : len(typeToCheck)-1] // Remove "Nullable(" and ")"
+	}
+
+	if !strings.HasPrefix(typeToCheck, "FixedString(") {
+		return false, 0
+	}
+
+	// Parse: FixedString(66) -> 66
+	lengthStr := strings.TrimSuffix(strings.TrimPrefix(typeToCheck, "FixedString("), ")")
+	length, err := strconv.Atoi(lengthStr)
+	if err != nil {
+		return false, 0
+	}
+	return true, length
 }
