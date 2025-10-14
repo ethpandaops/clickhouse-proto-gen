@@ -54,7 +54,37 @@ func TestExtractBaseType(t *testing.T) {
 		{
 			name:     "LowCardinality wrapper",
 			input:    "LowCardinality(String)",
-			expected: "LowCardinality",
+			expected: "String",
+		},
+		{
+			name:     "Array of Nullable UInt64",
+			input:    "Array(Nullable(UInt64))",
+			expected: "UInt64",
+		},
+		{
+			name:     "Array of Nullable String",
+			input:    "Array(Nullable(String))",
+			expected: "String",
+		},
+		{
+			name:     "Nullable Array (different order)",
+			input:    "Nullable(Array(Int32))",
+			expected: "Int32",
+		},
+		{
+			name:     "LowCardinality Nullable String",
+			input:    "LowCardinality(Nullable(String))",
+			expected: "String",
+		},
+		{
+			name:     "Array of LowCardinality String",
+			input:    "Array(LowCardinality(String))",
+			expected: "String",
+		},
+		{
+			name:     "Array of Nullable Decimal128",
+			input:    "Array(Nullable(Decimal128(18)))",
+			expected: "Decimal128",
 		},
 	}
 

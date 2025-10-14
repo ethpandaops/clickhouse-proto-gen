@@ -377,19 +377,39 @@ func splitDistributedArgs(args string) []string {
 }
 
 func extractBaseType(clickhouseType string) string {
-	// Remove Nullable wrapper
-	if strings.HasPrefix(clickhouseType, "Nullable(") {
-		clickhouseType = strings.TrimPrefix(clickhouseType, "Nullable(")
-		clickhouseType = strings.TrimSuffix(clickhouseType, ")")
+	// Recursively remove wrapper types (Array, Nullable, LowCardinality)
+	// This handles nested cases like Array(Nullable(UInt64))
+	for {
+		stripped := false
+
+		// Remove Nullable wrapper
+		if strings.HasPrefix(clickhouseType, "Nullable(") {
+			clickhouseType = strings.TrimPrefix(clickhouseType, "Nullable(")
+			clickhouseType = strings.TrimSuffix(clickhouseType, ")")
+			stripped = true
+		}
+
+		// Remove Array wrapper
+		if strings.HasPrefix(clickhouseType, "Array(") {
+			clickhouseType = strings.TrimPrefix(clickhouseType, "Array(")
+			clickhouseType = strings.TrimSuffix(clickhouseType, ")")
+			stripped = true
+		}
+
+		// Remove LowCardinality wrapper
+		if strings.HasPrefix(clickhouseType, "LowCardinality(") {
+			clickhouseType = strings.TrimPrefix(clickhouseType, "LowCardinality(")
+			clickhouseType = strings.TrimSuffix(clickhouseType, ")")
+			stripped = true
+		}
+
+		// If nothing was stripped, we're done
+		if !stripped {
+			break
+		}
 	}
 
-	// Remove Array wrapper
-	if strings.HasPrefix(clickhouseType, "Array(") {
-		clickhouseType = strings.TrimPrefix(clickhouseType, "Array(")
-		clickhouseType = strings.TrimSuffix(clickhouseType, ")")
-	}
-
-	// Extract base type (before parentheses)
+	// Extract base type (before parentheses for parameterized types like Decimal(18,2))
 	if idx := strings.Index(clickhouseType, "("); idx > 0 {
 		return clickhouseType[:idx]
 	}
