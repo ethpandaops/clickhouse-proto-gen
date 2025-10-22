@@ -52,16 +52,16 @@ conversion:
   # Use this when specific fields in specific tables need string representation
   # to preserve precision beyond JavaScript's safe integer range
   uint64_to_string:
-    fct_prepared_block:
-      - consensus_payload_value  # Ethereum consensus payload value in Wei
-      - execution_payload_value  # Ethereum execution payload value in Wei
-    fct_block_native_transfers:
-      - value       # Transfer value in Wei
-      - gas_price   # Gas price in Wei
+    fct_my_table_a:
+      - my_col_b
+      - my_col_f
+    fct_my_table_c:
+      - my_col_x
+      - my_col_y
 
   # Alternative: CLI flag for quick testing or scripting
   # Use --uint64-to-string flag with patterns:
-  #   --uint64-to-string "fct_prepared_block.consensus_payload_value"  # Exact: table.field
-  #   --uint64-to-string "*.block_number"                              # Wildcard: field in all tables
-  #   --uint64-to-string "fct_prepared_block.*"                        # Wildcard: all fields in table
-  #   --uint64-to-string "*.*"                                         # Wildcard: ALL fields in ALL tables
+  #   --uint64-to-string "fct_my_table_a.my_col_f"                 # Exact: table.field
+  #   --uint64-to-string "*.my_col_x"                              # Wildcard: field in all tables
+  #   --uint64-to-string "fct_my_table_c.*"                        # Wildcard: all fields in table
+  #   --uint64-to-string "*.*"                                     # Wildcard: ALL fields in ALL tables
