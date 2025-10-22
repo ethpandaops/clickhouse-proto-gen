@@ -65,6 +65,9 @@ func NewGenerator(cfg *config.Config, log logrus.FieldLogger) *Generator {
 
 // Generate creates proto files for the given tables
 func (g *Generator) Generate(tables []*clickhouse.Table) error {
+	// Validate conversion configuration
+	g.validateConversionConfig(tables)
+
 	// Ensure output directory exists
 	if err := os.MkdirAll(g.config.OutputDir, 0o750); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
@@ -166,7 +169,7 @@ func (g *Generator) tableNeedsWrapperForService(table *clickhouse.Table) bool {
 		}
 
 		// Check if this column will use a filter type
-		filterType := g.typeMapper.GetFilterTypeForColumn(&column)
+		filterType := g.typeMapper.GetFilterTypeForColumn(&column, table.Name, &g.config.Conversion)
 		if filterType == "" {
 			// No filter type available, will use wrapper type
 			protoType := g.typeMapper.mapBaseType(column.BaseType, column.Type)
@@ -218,7 +221,7 @@ func (g *Generator) writeMessage(sb *strings.Builder, table *clickhouse.Table) {
 
 	// Process columns
 	for _, column := range table.Columns {
-		field, err := g.typeMapper.ConvertColumn(&column)
+		field, err := g.typeMapper.ConvertColumn(&column, table.Name, &g.config.Conversion)
 		if err != nil {
 			g.log.WithError(err).WithField("column", column.Name).Warn("Failed to convert column")
 			continue
@@ -320,7 +323,7 @@ func (g *Generator) writeServiceDefinitions(sb *strings.Builder, table *clickhou
 		primaryKeyField := SanitizeName(primaryKey)
 
 		// Get the base proto type (not filter type) for the primary key
-		protoType, _ := g.typeMapper.MapType(column)
+		protoType, _ := g.typeMapper.MapType(column, table.Name, &g.config.Conversion)
 
 		// Write field comment if available
 		if g.config.IncludeComments && column.Comment != "" {
@@ -412,7 +415,7 @@ func (g *Generator) writePrimaryKeyField(sb *strings.Builder, sortCol string, co
 	}
 
 	// Get the appropriate filter type based on column type and nullability
-	filterType := g.typeMapper.GetFilterTypeForColumn(column)
+	filterType := g.typeMapper.GetFilterTypeForColumn(column, table.Name, &g.config.Conversion)
 
 	//nolint:nestif // readable.
 	if filterType != "" {
@@ -471,7 +474,7 @@ func (g *Generator) writeSortingKeyField(sb *strings.Builder, sortCol string, co
 	}
 
 	// Get the appropriate filter type based on column type and nullability
-	filterType := g.typeMapper.GetFilterTypeForColumn(column)
+	filterType := g.typeMapper.GetFilterTypeForColumn(column, tableName, &g.config.Conversion)
 
 	//nolint:nestif // readable.
 	if filterType != "" {
@@ -537,7 +540,7 @@ func (g *Generator) writeRemainingColumnFilters(sb *strings.Builder, table *clic
 		}
 
 		// Get the appropriate filter type based on column type and nullability
-		filterType := g.typeMapper.GetFilterTypeForColumn(&column)
+		filterType := g.typeMapper.GetFilterTypeForColumn(&column, table.Name, &g.config.Conversion)
 
 		//nolint:nestif // readable.
 		if filterType != "" {
@@ -649,4 +652,116 @@ func getProtoTypeForColumn(column *clickhouse.Column) string {
 
 	// For regular columns, just return the base proto type
 	return getProtoType(column.BaseType)
+}
+
+// validateConversionConfig validates the UInt64-to-string conversion configuration
+// and logs warnings for any misconfigured fields
+//
+//nolint:gocyclo // Validation logic complexity is acceptable
+func (g *Generator) validateConversionConfig(tables []*clickhouse.Table) {
+	convConfig := &g.config.Conversion
+
+	// Build a map of table → columns for validation
+	tableColumns := g.buildTableColumnsMap(tables)
+
+	// Validate table-scoped conversions
+	g.validateTableScopedConversions(convConfig, tableColumns)
+
+	// Validate CLI-provided patterns
+	g.validateCLIPatterns(convConfig, tableColumns)
+}
+
+// buildTableColumnsMap creates a map of table name to column map for validation
+func (g *Generator) buildTableColumnsMap(tables []*clickhouse.Table) map[string]map[string]*clickhouse.Column {
+	tableColumns := make(map[string]map[string]*clickhouse.Column, len(tables))
+	for _, table := range tables {
+		colMap := make(map[string]*clickhouse.Column, len(table.Columns))
+		for i := range table.Columns {
+			colMap[table.Columns[i].Name] = &table.Columns[i]
+		}
+		tableColumns[table.Name] = colMap
+	}
+	return tableColumns
+}
+
+// validateTableScopedConversions validates table-scoped uint64-to-string conversions
+func (g *Generator) validateTableScopedConversions(convConfig *config.ConversionConfig, tableColumns map[string]map[string]*clickhouse.Column) {
+	for tableName, fieldNames := range convConfig.UInt64ToString {
+		colMap, tableExists := tableColumns[tableName]
+		if !tableExists {
+			g.log.WithField("table", tableName).Warn("Table specified in uint64_to_string conversion config not found in tables being generated")
+			continue
+		}
+
+		g.validateFieldsInTable(tableName, fieldNames, colMap)
+	}
+}
+
+// validateFieldsInTable validates that fields exist and are UInt64 type
+func (g *Generator) validateFieldsInTable(tableName string, fieldNames []string, colMap map[string]*clickhouse.Column) {
+	for _, fieldName := range fieldNames {
+		col, exists := colMap[fieldName]
+		if !exists {
+			g.log.WithFields(logrus.Fields{
+				"table": tableName,
+				"field": fieldName,
+			}).Warn("Field specified in uint64_to_string conversion config not found in table")
+			continue
+		}
+
+		if col.BaseType != typeUInt64 {
+			g.log.WithFields(logrus.Fields{
+				"table":    tableName,
+				"field":    fieldName,
+				"type":     col.BaseType,
+				"expected": typeUInt64,
+			}).Warn("Field marked for uint64-to-string conversion is not UInt64 type")
+		}
+	}
+}
+
+// validateCLIPatterns validates CLI-provided wildcard patterns
+func (g *Generator) validateCLIPatterns(convConfig *config.ConversionConfig, tableColumns map[string]map[string]*clickhouse.Column) {
+	for _, pattern := range convConfig.UInt64ToStringFields {
+		parts := strings.Split(pattern, ".")
+		if len(parts) != 2 {
+			continue
+		}
+
+		g.validatePattern(pattern, parts[0], parts[1], tableColumns)
+	}
+}
+
+// validatePattern validates a single CLI pattern
+func (g *Generator) validatePattern(pattern, tablePattern, fieldPattern string, tableColumns map[string]map[string]*clickhouse.Column) {
+	found := false
+
+	for tableName, colMap := range tableColumns {
+		// Check if table matches pattern
+		if !g.tableMatchesPattern(tablePattern, tableName) {
+			continue
+		}
+
+		if col, exists := colMap[fieldPattern]; exists {
+			found = true
+			if col.BaseType != typeUInt64 {
+				g.log.WithFields(logrus.Fields{
+					"table":    tableName,
+					"field":    fieldPattern,
+					"pattern":  pattern,
+					"type":     col.BaseType,
+					"expected": typeUInt64,
+				}).Warn("Field matching uint64-to-string pattern is not UInt64 type")
+			}
+		}
+	}
+
+	if !found && tablePattern != "*" {
+		g.log.WithField("pattern", pattern).Warn("Pattern specified in uint64-to-string conversion not found in any table")
+	}
+}
+
+// tableMatchesPattern checks if a table name matches a pattern
+func (g *Generator) tableMatchesPattern(pattern, tableName string) bool {
+	return pattern == "*" || pattern == tableName
 }

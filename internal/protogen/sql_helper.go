@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/ethpandaops/clickhouse-proto-gen/internal/clickhouse"
+	"github.com/ethpandaops/clickhouse-proto-gen/internal/config"
 )
 
 const (
@@ -133,7 +134,7 @@ func hasNullableArrayElements(col *clickhouse.Column) bool {
 func getDefaultValueForType(baseType string) string {
 	// For numeric types, default to 0
 	numericTypes := []string{
-		"UInt8", "UInt16", "UInt32", "UInt64", "UInt128", "UInt256",
+		"UInt8", "UInt16", "UInt32", typeUInt64, "UInt128", "UInt256",
 		"Int8", "Int16", "Int32", "Int64", "Int128", "Int256",
 		"Float32", "Float64",
 		"Decimal", "Decimal32", "Decimal64", "Decimal128", "Decimal256",
@@ -167,8 +168,22 @@ func getDefaultValueForType(baseType string) string {
 // FixedString fields with zero bytes are converted to NULL.
 //
 //nolint:gocyclo // High complexity is inherent to type mapping logic
-func getSelectColumnExpression(col *clickhouse.Column) string {
+func getSelectColumnExpression(col *clickhouse.Column, tableName string, convConfig *config.ConversionConfig) string {
 	hasNullable := hasNullableArrayElements(col)
+
+	// PRIORITY 1: Check if this UInt64 should be converted to string for JavaScript precision
+	if col.BaseType == typeUInt64 && convConfig.ShouldConvertToString(tableName, col.Name) {
+		if col.IsArray {
+			if hasNullable {
+				// Array(Nullable(UInt64)) → Array(String) with NULL handling
+				return fmt.Sprintf("arrayMap(x -> toString(coalesce(x, 0)), `%s`) AS `%s`", col.Name, col.Name)
+			}
+			// Array(UInt64) → Array(String)
+			return fmt.Sprintf("arrayMap(x -> toString(x), `%s`) AS `%s`", col.Name, col.Name)
+		}
+		// Regular UInt64 → String
+		return fmt.Sprintf("toString(`%s`) AS `%s`", col.Name, col.Name)
+	}
 
 	// Handle FixedString types - convert zero-byte strings to NULL
 	// This prevents confusing zero-byte string output in API responses
@@ -368,7 +383,7 @@ func (g *Generator) writeSQLBuilderFunction(sb *strings.Builder, table *clickhou
 		if i > 0 {
 			fmt.Fprintf(sb, ", ")
 		}
-		colExpr := getSelectColumnExpression(&col)
+		colExpr := getSelectColumnExpression(&col, table.Name, &g.config.Conversion)
 		fmt.Fprintf(sb, "\"%s\"", colExpr)
 	}
 	fmt.Fprintf(sb, "}\n\n")
@@ -448,7 +463,7 @@ func (g *Generator) writeGetSQLBuilderFunction(sb *strings.Builder, table *click
 			if i > 0 {
 				fmt.Fprintf(sb, ", ")
 			}
-			colExpr := getSelectColumnExpression(&col)
+			colExpr := getSelectColumnExpression(&col, table.Name, &g.config.Conversion)
 			fmt.Fprintf(sb, "\"%s\"", colExpr)
 		}
 		fmt.Fprintf(sb, "}\n\n")
@@ -470,7 +485,7 @@ func (g *Generator) writeGetSQLBuilderFunction(sb *strings.Builder, table *click
 	var primaryKeyType string
 	for _, col := range table.Columns {
 		if col.Name == primaryKey {
-			protoType, _ := g.typeMapper.MapType(&col)
+			protoType, _ := g.typeMapper.MapType(&col, table.Name, &g.config.Conversion)
 			// Check if it's a string type
 			if protoType == protoString {
 				primaryKeyType = stringType
@@ -514,7 +529,7 @@ func (g *Generator) writeGetSQLBuilderFunction(sb *strings.Builder, table *click
 		if i > 0 {
 			fmt.Fprintf(sb, ", ")
 		}
-		colExpr := getSelectColumnExpression(&col)
+		colExpr := getSelectColumnExpression(&col, table.Name, &g.config.Conversion)
 		fmt.Fprintf(sb, "\"%s\"", colExpr)
 	}
 	fmt.Fprintf(sb, "}\n\n")
@@ -551,7 +566,7 @@ func (g *Generator) writeAllFilterConditions(sb *strings.Builder, table *clickho
 		fmt.Fprintf(sb, "\t// Add primary key filter\n")
 		// If multiple primary keys exist, treat this one as optional too
 		isPrimary := !hasMultiplePrimaryKeys
-		g.writeFilterCondition(sb, primaryKey, primaryKeyField, columnMap[primaryKey], isPrimary)
+		g.writeFilterCondition(sb, table, primaryKey, primaryKeyField, columnMap[primaryKey], isPrimary)
 	}
 
 	// Process all other columns
@@ -562,15 +577,15 @@ func (g *Generator) writeAllFilterConditions(sb *strings.Builder, table *clickho
 		}
 		fieldName := SanitizeName(col.Name)
 		fmt.Fprintf(sb, "\n\t// Add filter for column: %s\n", col.Name)
-		g.writeFilterCondition(sb, col.Name, fieldName, &col, false)
+		g.writeFilterCondition(sb, table, col.Name, fieldName, &col, false)
 	}
 	fmt.Fprintf(sb, "\n")
 }
 
 // writeFilterCondition generates code to convert a filter to QueryBuilder conditions
-func (g *Generator) writeFilterCondition(sb *strings.Builder, columnName, fieldName string, column *clickhouse.Column, isPrimary bool) {
+func (g *Generator) writeFilterCondition(sb *strings.Builder, table *clickhouse.Table, columnName, fieldName string, column *clickhouse.Column, isPrimary bool) {
 	pascalFieldName := ToPascalCase(fieldName)
-	filterType := g.typeMapper.GetFilterTypeForColumn(column)
+	filterType := g.typeMapper.GetFilterTypeForColumn(column, table.Name, &g.config.Conversion)
 
 	if filterType == "" {
 		// No filter type for this column, skip
@@ -665,7 +680,7 @@ func (g *Generator) writeFilterCases(sb *strings.Builder, columnName, filterType
 
 	// Handle numeric filters (Int32, Int64, UInt32, UInt64)
 	if strings.Contains(filterType, "Int32") || strings.Contains(filterType, "Int64") ||
-		strings.Contains(filterType, "UInt32") || strings.Contains(filterType, "UInt64") {
+		strings.Contains(filterType, "UInt32") || strings.Contains(filterType, typeUInt64) {
 		g.handleNumericFilter(sb, columnName, filterType, indent)
 	}
 }
