@@ -540,7 +540,7 @@ func TestConfig_MergeFlags(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := tt.initial
-			cfg.MergeFlags(tt.dsn, tt.outputDir, tt.pkg, tt.goPkg, tt.tables, tt.includeComments, 0, tt.enableAPI, tt.apiBasePath, tt.apiTablePrefixes)
+			cfg.MergeFlags(tt.dsn, tt.outputDir, tt.pkg, tt.goPkg, tt.tables, tt.includeComments, 0, tt.enableAPI, tt.apiBasePath, tt.apiTablePrefixes, "")
 			assert.Equal(t, tt.expected, cfg)
 		})
 	}
@@ -617,7 +617,7 @@ func TestConfig_YAMLUnmarshalError(t *testing.T) {
 	// Write content that causes YAML unmarshal to fail
 	badYAML := `
 dsn: clickhouse://localhost:9000/test
-tables: 
+tables:
   - valid_table
   invalid_key_without_value:
   : no_key_just_value
@@ -633,4 +633,361 @@ tables:
 	err = cfg.LoadFromFile(tmpFile.Name(), log)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to parse config file")
+}
+
+func TestConversionConfig_ShouldConvertToString(t *testing.T) {
+	tests := []struct {
+		name      string
+		config    ConversionConfig
+		tableName string
+		fieldName string
+		expected  bool
+	}{
+		// Table-scoped configuration tests
+		{
+			name: "table-scoped exact match",
+			config: ConversionConfig{
+				UInt64ToString: map[string][]string{
+					"fct_prepared_block": {"consensus_payload_value", "execution_payload_value"},
+				},
+			},
+			tableName: "fct_prepared_block",
+			fieldName: "consensus_payload_value",
+			expected:  true,
+		},
+		{
+			name: "table-scoped no match - different field",
+			config: ConversionConfig{
+				UInt64ToString: map[string][]string{
+					"fct_prepared_block": {"consensus_payload_value"},
+				},
+			},
+			tableName: "fct_prepared_block",
+			fieldName: "block_number",
+			expected:  false,
+		},
+		{
+			name: "table-scoped no match - different table",
+			config: ConversionConfig{
+				UInt64ToString: map[string][]string{
+					"fct_prepared_block": {"consensus_payload_value"},
+				},
+			},
+			tableName: "other_table",
+			fieldName: "consensus_payload_value",
+			expected:  false,
+		},
+
+		// CLI pattern tests - exact match
+		{
+			name: "CLI pattern - exact table.field match",
+			config: ConversionConfig{
+				UInt64ToStringFields: []string{"fct_prepared_block.consensus_payload_value"},
+			},
+			tableName: "fct_prepared_block",
+			fieldName: "consensus_payload_value",
+			expected:  true,
+		},
+		{
+			name: "CLI pattern - exact match no match different table",
+			config: ConversionConfig{
+				UInt64ToStringFields: []string{"fct_prepared_block.consensus_payload_value"},
+			},
+			tableName: "other_table",
+			fieldName: "consensus_payload_value",
+			expected:  false,
+		},
+
+		// CLI pattern tests - wildcard table
+		{
+			name: "CLI pattern - wildcard table *.field",
+			config: ConversionConfig{
+				UInt64ToStringFields: []string{"*.block_number"},
+			},
+			tableName: "fct_prepared_block",
+			fieldName: "block_number",
+			expected:  true,
+		},
+		{
+			name: "CLI pattern - wildcard table *.field matches any table",
+			config: ConversionConfig{
+				UInt64ToStringFields: []string{"*.slot"},
+			},
+			tableName: "any_table",
+			fieldName: "slot",
+			expected:  true,
+		},
+		{
+			name: "CLI pattern - wildcard table *.field no match different field",
+			config: ConversionConfig{
+				UInt64ToStringFields: []string{"*.block_number"},
+			},
+			tableName: "fct_prepared_block",
+			fieldName: "slot",
+			expected:  false,
+		},
+
+		// CLI pattern tests - wildcard field
+		{
+			name: "CLI pattern - specific table wildcard field table.*",
+			config: ConversionConfig{
+				UInt64ToStringFields: []string{"fct_prepared_block.*"},
+			},
+			tableName: "fct_prepared_block",
+			fieldName: "any_field",
+			expected:  true,
+		},
+		{
+			name: "CLI pattern - specific table wildcard field table.* no match different table",
+			config: ConversionConfig{
+				UInt64ToStringFields: []string{"fct_prepared_block.*"},
+			},
+			tableName: "other_table",
+			fieldName: "any_field",
+			expected:  false,
+		},
+
+		// CLI pattern tests - full wildcard
+		{
+			name: "CLI pattern - full wildcard *.* matches everything",
+			config: ConversionConfig{
+				UInt64ToStringFields: []string{"*.*"},
+			},
+			tableName: "any_table",
+			fieldName: "any_field",
+			expected:  true,
+		},
+
+		// CLI pattern tests - field only (no table prefix)
+		{
+			name: "CLI pattern - field only (no prefix) matches any table",
+			config: ConversionConfig{
+				UInt64ToStringFields: []string{"block_number"},
+			},
+			tableName: "any_table",
+			fieldName: "block_number",
+			expected:  true,
+		},
+		{
+			name: "CLI pattern - field only no match different field",
+			config: ConversionConfig{
+				UInt64ToStringFields: []string{"block_number"},
+			},
+			tableName: "any_table",
+			fieldName: "slot",
+			expected:  false,
+		},
+
+		// Combined configuration tests
+		{
+			name: "combined - table-scoped match",
+			config: ConversionConfig{
+				UInt64ToString: map[string][]string{
+					"fct_prepared_block": {"consensus_payload_value"},
+				},
+				UInt64ToStringFields: []string{"*.block_number"},
+			},
+			tableName: "fct_prepared_block",
+			fieldName: "consensus_payload_value",
+			expected:  true,
+		},
+		{
+			name: "combined - CLI pattern match",
+			config: ConversionConfig{
+				UInt64ToString: map[string][]string{
+					"fct_prepared_block": {"consensus_payload_value"},
+				},
+				UInt64ToStringFields: []string{"*.block_number"},
+			},
+			tableName: "other_table",
+			fieldName: "block_number",
+			expected:  true,
+		},
+		{
+			name: "combined - no match",
+			config: ConversionConfig{
+				UInt64ToString: map[string][]string{
+					"fct_prepared_block": {"consensus_payload_value"},
+				},
+				UInt64ToStringFields: []string{"*.block_number"},
+			},
+			tableName: "other_table",
+			fieldName: "slot",
+			expected:  false,
+		},
+
+		// Empty configuration tests
+		{
+			name:      "empty config - no match",
+			config:    ConversionConfig{},
+			tableName: "any_table",
+			fieldName: "any_field",
+			expected:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.config.ShouldConvertToString(tt.tableName, tt.fieldName)
+			assert.Equal(t, tt.expected, result, "ShouldConvertToString mismatch")
+		})
+	}
+}
+
+func TestMatchesPattern(t *testing.T) {
+	tests := []struct {
+		name      string
+		pattern   string
+		tableName string
+		fieldName string
+		expected  bool
+	}{
+		// Exact matches
+		{
+			name:      "exact match table.field",
+			pattern:   "fct_prepared_block.consensus_payload_value",
+			tableName: "fct_prepared_block",
+			fieldName: "consensus_payload_value",
+			expected:  true,
+		},
+		{
+			name:      "exact match - wrong table",
+			pattern:   "fct_prepared_block.consensus_payload_value",
+			tableName: "other_table",
+			fieldName: "consensus_payload_value",
+			expected:  false,
+		},
+		{
+			name:      "exact match - wrong field",
+			pattern:   "fct_prepared_block.consensus_payload_value",
+			tableName: "fct_prepared_block",
+			fieldName: "other_field",
+			expected:  false,
+		},
+
+		// Wildcard table patterns
+		{
+			name:      "wildcard table *.field",
+			pattern:   "*.block_number",
+			tableName: "any_table",
+			fieldName: "block_number",
+			expected:  true,
+		},
+		{
+			name:      "wildcard table *.field - wrong field",
+			pattern:   "*.block_number",
+			tableName: "any_table",
+			fieldName: "slot",
+			expected:  false,
+		},
+
+		// Wildcard field patterns
+		{
+			name:      "wildcard field table.*",
+			pattern:   "fct_prepared_block.*",
+			tableName: "fct_prepared_block",
+			fieldName: "any_field",
+			expected:  true,
+		},
+		{
+			name:      "wildcard field table.* - wrong table",
+			pattern:   "fct_prepared_block.*",
+			tableName: "other_table",
+			fieldName: "any_field",
+			expected:  false,
+		},
+
+		// Full wildcard
+		{
+			name:      "full wildcard *.* matches all",
+			pattern:   "*.*",
+			tableName: "any_table",
+			fieldName: "any_field",
+			expected:  true,
+		},
+
+		// Field only (no table prefix)
+		{
+			name:      "field only matches any table",
+			pattern:   "block_number",
+			tableName: "any_table",
+			fieldName: "block_number",
+			expected:  true,
+		},
+		{
+			name:      "field only - wrong field",
+			pattern:   "block_number",
+			tableName: "any_table",
+			fieldName: "slot",
+			expected:  false,
+		},
+
+		// Edge cases
+		{
+			name:      "empty pattern",
+			pattern:   "",
+			tableName: "any_table",
+			fieldName: "any_field",
+			expected:  false,
+		},
+		{
+			name:      "pattern with multiple dots - invalid",
+			pattern:   "db.table.field",
+			tableName: "table",
+			fieldName: "field",
+			expected:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := matchesPattern(tt.pattern, tt.tableName, tt.fieldName)
+			assert.Equal(t, tt.expected, result, "matchesPattern result mismatch")
+		})
+	}
+}
+
+func TestConversionConfig_MultiplePatterns(t *testing.T) {
+	config := ConversionConfig{
+		UInt64ToString: map[string][]string{
+			"fct_prepared_block":         {"consensus_payload_value", "execution_payload_value"},
+			"fct_block_native_transfers": {"value", "gas_price"},
+		},
+		UInt64ToStringFields: []string{
+			"*.block_number",
+			"*.slot",
+			"fct_beacon_state.*",
+			"*.*",
+		},
+	}
+
+	testCases := []struct {
+		table    string
+		field    string
+		expected bool
+		reason   string
+	}{
+		// Table-scoped matches
+		{"fct_prepared_block", "consensus_payload_value", true, "table-scoped exact"},
+		{"fct_prepared_block", "execution_payload_value", true, "table-scoped exact"},
+		{"fct_block_native_transfers", "value", true, "table-scoped exact"},
+		{"fct_block_native_transfers", "gas_price", true, "table-scoped exact"},
+
+		// CLI wildcard field matches
+		{"any_table", "block_number", true, "*.block_number pattern"},
+		{"another_table", "slot", true, "*.slot pattern"},
+
+		// CLI wildcard table matches
+		{"fct_beacon_state", "any_field", true, "fct_beacon_state.* pattern"},
+
+		// Full wildcard matches everything
+		{"completely_random", "random_field", true, "*.* pattern"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.table+"."+tc.field, func(t *testing.T) {
+			result := config.ShouldConvertToString(tc.table, tc.field)
+			assert.Equal(t, tc.expected, result, "Expected %v for %s.%s (%s)", tc.expected, tc.table, tc.field, tc.reason)
+		})
+	}
 }

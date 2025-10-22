@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/ethpandaops/clickhouse-proto-gen/internal/clickhouse"
+	"github.com/ethpandaops/clickhouse-proto-gen/internal/config"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -275,7 +276,7 @@ func TestGetSelectColumnExpression(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := getSelectColumnExpression(&tt.column)
+			result := getSelectColumnExpression(&tt.column, "test_table", &config.ConversionConfig{})
 			assert.Equal(t, tt.expected, result,
 				"Column expression mismatch for %s (%s)",
 				tt.column.Name, tt.column.Type)

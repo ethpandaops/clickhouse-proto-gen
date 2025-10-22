@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/ethpandaops/clickhouse-proto-gen/internal/clickhouse"
+	"github.com/ethpandaops/clickhouse-proto-gen/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -449,7 +450,7 @@ func TestTypeMapper_MapType(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := tm.MapType(&tt.column)
+			result, err := tm.MapType(&tt.column, "test_table", &config.ConversionConfig{})
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -537,7 +538,7 @@ func TestTypeMapper_ConvertColumn(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := tm.ConvertColumn(&tt.column)
+			result, err := tm.ConvertColumn(&tt.column, "test_table", &config.ConversionConfig{})
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -719,7 +720,7 @@ func TestTypeMapper_GetFilterTypeForColumn(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := tm.GetFilterTypeForColumn(&tt.column)
+			result := tm.GetFilterTypeForColumn(&tt.column, "test_table", &config.ConversionConfig{})
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -842,64 +843,64 @@ func TestTypeMapper_GetWrapperTypeForColumn(t *testing.T) {
 
 func TestIsFixedString(t *testing.T) {
 	tests := []struct {
-		name           string
-		chType         string
+		name            string
+		chType          string
 		expectedIsFixed bool
-		expectedLength int
+		expectedLength  int
 	}{
 		{
-			name:           "FixedString(32)",
-			chType:         "FixedString(32)",
+			name:            "FixedString(32)",
+			chType:          "FixedString(32)",
 			expectedIsFixed: true,
-			expectedLength: 32,
+			expectedLength:  32,
 		},
 		{
-			name:           "FixedString(66)",
-			chType:         "FixedString(66)",
+			name:            "FixedString(66)",
+			chType:          "FixedString(66)",
 			expectedIsFixed: true,
-			expectedLength: 66,
+			expectedLength:  66,
 		},
 		{
-			name:           "FixedString(10)",
-			chType:         "FixedString(10)",
+			name:            "FixedString(10)",
+			chType:          "FixedString(10)",
 			expectedIsFixed: true,
-			expectedLength: 10,
+			expectedLength:  10,
 		},
 		{
-			name:           "Nullable(FixedString(32))",
-			chType:         "Nullable(FixedString(32))",
+			name:            "Nullable(FixedString(32))",
+			chType:          "Nullable(FixedString(32))",
 			expectedIsFixed: true,
-			expectedLength: 32,
+			expectedLength:  32,
 		},
 		{
-			name:           "Nullable(FixedString(66))",
-			chType:         "Nullable(FixedString(66))",
+			name:            "Nullable(FixedString(66))",
+			chType:          "Nullable(FixedString(66))",
 			expectedIsFixed: true,
-			expectedLength: 66,
+			expectedLength:  66,
 		},
 		{
-			name:           "String",
-			chType:         "String",
+			name:            "String",
+			chType:          "String",
 			expectedIsFixed: false,
-			expectedLength: 0,
+			expectedLength:  0,
 		},
 		{
-			name:           "Nullable(String)",
-			chType:         "Nullable(String)",
+			name:            "Nullable(String)",
+			chType:          "Nullable(String)",
 			expectedIsFixed: false,
-			expectedLength: 0,
+			expectedLength:  0,
 		},
 		{
-			name:           "Int32",
-			chType:         "Int32",
+			name:            "Int32",
+			chType:          "Int32",
 			expectedIsFixed: false,
-			expectedLength: 0,
+			expectedLength:  0,
 		},
 		{
-			name:           "Invalid FixedString",
-			chType:         "FixedString(abc)",
+			name:            "Invalid FixedString",
+			chType:          "FixedString(abc)",
 			expectedIsFixed: false,
-			expectedLength: 0,
+			expectedLength:  0,
 		},
 	}
 
@@ -908,6 +909,397 @@ func TestIsFixedString(t *testing.T) {
 			isFixed, length := IsFixedString(tt.chType)
 			assert.Equal(t, tt.expectedIsFixed, isFixed, "IsFixed mismatch for %s", tt.chType)
 			assert.Equal(t, tt.expectedLength, length, "Length mismatch for %s", tt.chType)
+		})
+	}
+}
+
+// TestMapType_UInt64ToStringConversion tests that UInt64 fields are converted to string
+// when they are whitelisted in the conversion configuration
+func TestMapType_UInt64ToStringConversion(t *testing.T) {
+	tm := NewTypeMapper()
+
+	tests := []struct {
+		name      string
+		column    clickhouse.Column
+		tableName string
+		config    config.ConversionConfig
+		expected  string
+		desc      string
+	}{
+		// Regular UInt64 conversion
+		{
+			name: "UInt64 converted to string when whitelisted",
+			column: clickhouse.Column{
+				Name:     "consensus_payload_value",
+				BaseType: "UInt64",
+				Type:     "UInt64",
+			},
+			tableName: "fct_prepared_block",
+			config: config.ConversionConfig{
+				UInt64ToString: map[string][]string{
+					"fct_prepared_block": {"consensus_payload_value"},
+				},
+			},
+			expected: "string",
+			desc:     "UInt64 → string for JavaScript precision",
+		},
+		{
+			name: "UInt64 not converted when not whitelisted",
+			column: clickhouse.Column{
+				Name:     "block_number",
+				BaseType: "UInt64",
+				Type:     "UInt64",
+			},
+			tableName: "fct_prepared_block",
+			config:    config.ConversionConfig{},
+			expected:  "uint64",
+			desc:      "UInt64 stays uint64 when not whitelisted",
+		},
+
+		// Nullable UInt64 conversion
+		{
+			name: "Nullable(UInt64) converted to StringValue when whitelisted",
+			column: clickhouse.Column{
+				Name:       "consensus_payload_value",
+				BaseType:   "UInt64",
+				Type:       "Nullable(UInt64)",
+				IsNullable: true,
+			},
+			tableName: "fct_prepared_block",
+			config: config.ConversionConfig{
+				UInt64ToString: map[string][]string{
+					"fct_prepared_block": {"consensus_payload_value"},
+				},
+			},
+			expected: "google.protobuf.StringValue",
+			desc:     "Nullable(UInt64) → StringValue",
+		},
+		{
+			name: "Nullable(UInt64) not converted when not whitelisted",
+			column: clickhouse.Column{
+				Name:       "block_number",
+				BaseType:   "UInt64",
+				Type:       "Nullable(UInt64)",
+				IsNullable: true,
+			},
+			tableName: "fct_prepared_block",
+			config:    config.ConversionConfig{},
+			expected:  "google.protobuf.UInt64Value",
+			desc:      "Nullable(UInt64) stays UInt64Value when not whitelisted",
+		},
+
+		// Array(UInt64) conversion
+		{
+			name: "Array(UInt64) converted to repeated string when whitelisted",
+			column: clickhouse.Column{
+				Name:     "values",
+				BaseType: "UInt64",
+				Type:     "Array(UInt64)",
+				IsArray:  true,
+			},
+			tableName: "fct_prepared_block",
+			config: config.ConversionConfig{
+				UInt64ToString: map[string][]string{
+					"fct_prepared_block": {"values"},
+				},
+			},
+			expected: "repeated string",
+			desc:     "Array(UInt64) → repeated string",
+		},
+		{
+			name: "Array(UInt64) not converted when not whitelisted",
+			column: clickhouse.Column{
+				Name:     "values",
+				BaseType: "UInt64",
+				Type:     "Array(UInt64)",
+				IsArray:  true,
+			},
+			tableName: "fct_prepared_block",
+			config:    config.ConversionConfig{},
+			expected:  "repeated uint64",
+			desc:      "Array(UInt64) stays repeated uint64 when not whitelisted",
+		},
+
+		// CLI pattern matching
+		{
+			name: "UInt64 converted via CLI wildcard pattern *.*",
+			column: clickhouse.Column{
+				Name:     "any_uint64_field",
+				BaseType: "UInt64",
+				Type:     "UInt64",
+			},
+			tableName: "any_table",
+			config: config.ConversionConfig{
+				UInt64ToStringFields: []string{"*.*"},
+			},
+			expected: "string",
+			desc:     "*.* pattern converts all UInt64 fields",
+		},
+		{
+			name: "UInt64 converted via CLI specific field pattern *.field",
+			column: clickhouse.Column{
+				Name:     "block_number",
+				BaseType: "UInt64",
+				Type:     "UInt64",
+			},
+			tableName: "any_table",
+			config: config.ConversionConfig{
+				UInt64ToStringFields: []string{"*.block_number"},
+			},
+			expected: "string",
+			desc:     "*.field pattern converts specific field across all tables",
+		},
+		{
+			name: "UInt64 converted via CLI table wildcard pattern table.*",
+			column: clickhouse.Column{
+				Name:     "any_field",
+				BaseType: "UInt64",
+				Type:     "UInt64",
+			},
+			tableName: "fct_prepared_block",
+			config: config.ConversionConfig{
+				UInt64ToStringFields: []string{"fct_prepared_block.*"},
+			},
+			expected: "string",
+			desc:     "table.* pattern converts all fields in specific table",
+		},
+
+		// Non-UInt64 types should not be affected
+		{
+			name: "UInt32 not affected by UInt64 conversion config",
+			column: clickhouse.Column{
+				Name:     "consensus_payload_value",
+				BaseType: "UInt32",
+				Type:     "UInt32",
+			},
+			tableName: "fct_prepared_block",
+			config: config.ConversionConfig{
+				UInt64ToString: map[string][]string{
+					"fct_prepared_block": {"consensus_payload_value"},
+				},
+			},
+			expected: "uint32",
+			desc:     "UInt32 stays uint32 even if whitelisted",
+		},
+		{
+			name: "String not affected by UInt64 conversion config",
+			column: clickhouse.Column{
+				Name:     "consensus_payload_value",
+				BaseType: "String",
+				Type:     "String",
+			},
+			tableName: "fct_prepared_block",
+			config: config.ConversionConfig{
+				UInt64ToString: map[string][]string{
+					"fct_prepared_block": {"consensus_payload_value"},
+				},
+			},
+			expected: "string",
+			desc:     "String stays string even if whitelisted",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := tm.MapType(&tt.column, tt.tableName, &tt.config)
+			require.NoError(t, err, "MapType should not error")
+			assert.Equal(t, tt.expected, result, tt.desc)
+		})
+	}
+}
+
+// TestGetFilterTypeForColumn_UInt64ToStringConversion tests that filter types are correct
+// for converted UInt64 fields
+func TestGetFilterTypeForColumn_UInt64ToStringConversion(t *testing.T) {
+	tm := NewTypeMapper()
+
+	tests := []struct {
+		name      string
+		column    clickhouse.Column
+		tableName string
+		config    config.ConversionConfig
+		expected  string
+		desc      string
+	}{
+		{
+			name: "UInt64 filter becomes StringFilter when whitelisted",
+			column: clickhouse.Column{
+				Name:     "consensus_payload_value",
+				BaseType: "UInt64",
+				Type:     "UInt64",
+			},
+			tableName: "fct_prepared_block",
+			config: config.ConversionConfig{
+				UInt64ToString: map[string][]string{
+					"fct_prepared_block": {"consensus_payload_value"},
+				},
+			},
+			expected: "StringFilter",
+			desc:     "Converted UInt64 uses StringFilter",
+		},
+		{
+			name: "UInt64 filter stays UInt64Filter when not whitelisted",
+			column: clickhouse.Column{
+				Name:     "block_number",
+				BaseType: "UInt64",
+				Type:     "UInt64",
+			},
+			tableName: "fct_prepared_block",
+			config:    config.ConversionConfig{},
+			expected:  "UInt64Filter",
+			desc:      "Non-converted UInt64 uses UInt64Filter",
+		},
+		{
+			name: "Nullable(UInt64) filter becomes NullableStringFilter when whitelisted",
+			column: clickhouse.Column{
+				Name:       "consensus_payload_value",
+				BaseType:   "UInt64",
+				Type:       "Nullable(UInt64)",
+				IsNullable: true,
+			},
+			tableName: "fct_prepared_block",
+			config: config.ConversionConfig{
+				UInt64ToString: map[string][]string{
+					"fct_prepared_block": {"consensus_payload_value"},
+				},
+			},
+			expected: "NullableStringFilter",
+			desc:     "Converted Nullable(UInt64) uses NullableStringFilter",
+		},
+		{
+			name: "Nullable(UInt64) filter stays NullableUInt64Filter when not whitelisted",
+			column: clickhouse.Column{
+				Name:       "block_number",
+				BaseType:   "UInt64",
+				Type:       "Nullable(UInt64)",
+				IsNullable: true,
+			},
+			tableName: "fct_prepared_block",
+			config:    config.ConversionConfig{},
+			expected:  "NullableUInt64Filter",
+			desc:      "Non-converted Nullable(UInt64) uses NullableUInt64Filter",
+		},
+		{
+			name: "Array(UInt64) has no filter regardless of conversion",
+			column: clickhouse.Column{
+				Name:     "values",
+				BaseType: "UInt64",
+				Type:     "Array(UInt64)",
+				IsArray:  true,
+			},
+			tableName: "fct_prepared_block",
+			config: config.ConversionConfig{
+				UInt64ToString: map[string][]string{
+					"fct_prepared_block": {"values"},
+				},
+			},
+			expected: "",
+			desc:     "Arrays don't have filters",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tm.GetFilterTypeForColumn(&tt.column, tt.tableName, &tt.config)
+			assert.Equal(t, tt.expected, result, tt.desc)
+		})
+	}
+}
+
+// TestGetSelectColumnExpression_UInt64ToStringConversion tests that SQL SELECT expressions
+// use toString() for converted UInt64 fields
+func TestGetSelectColumnExpression_UInt64ToStringConversion(t *testing.T) {
+	tests := []struct {
+		name      string
+		column    clickhouse.Column
+		tableName string
+		config    config.ConversionConfig
+		expected  string
+		desc      string
+	}{
+		{
+			name: "UInt64 wrapped with toString() when whitelisted",
+			column: clickhouse.Column{
+				Name:     "consensus_payload_value",
+				BaseType: "UInt64",
+				Type:     "UInt64",
+			},
+			tableName: "fct_prepared_block",
+			config: config.ConversionConfig{
+				UInt64ToString: map[string][]string{
+					"fct_prepared_block": {"consensus_payload_value"},
+				},
+			},
+			expected: "toString(`consensus_payload_value`) AS `consensus_payload_value`",
+			desc:     "Converted UInt64 uses toString()",
+		},
+		{
+			name: "UInt64 not wrapped when not whitelisted",
+			column: clickhouse.Column{
+				Name:     "block_number",
+				BaseType: "UInt64",
+				Type:     "UInt64",
+			},
+			tableName: "fct_prepared_block",
+			config:    config.ConversionConfig{},
+			expected:  "block_number",
+			desc:      "Non-converted UInt64 uses plain column name",
+		},
+		{
+			name: "Array(UInt64) wrapped with arrayMap toString() when whitelisted",
+			column: clickhouse.Column{
+				Name:     "values",
+				BaseType: "UInt64",
+				Type:     "Array(UInt64)",
+				IsArray:  true,
+			},
+			tableName: "fct_prepared_block",
+			config: config.ConversionConfig{
+				UInt64ToString: map[string][]string{
+					"fct_prepared_block": {"values"},
+				},
+			},
+			expected: "arrayMap(x -> toString(x), `values`) AS `values`",
+			desc:     "Converted Array(UInt64) uses arrayMap with toString()",
+		},
+		{
+			name: "Array(Nullable(UInt64)) with NULL handling when whitelisted",
+			column: clickhouse.Column{
+				Name:       "values",
+				BaseType:   "UInt64",
+				Type:       "Array(Nullable(UInt64))",
+				IsArray:    true,
+				IsNullable: true,
+			},
+			tableName: "fct_prepared_block",
+			config: config.ConversionConfig{
+				UInt64ToString: map[string][]string{
+					"fct_prepared_block": {"values"},
+				},
+			},
+			expected: "arrayMap(x -> toString(coalesce(x, 0)), `values`) AS `values`",
+			desc:     "Converted Array(Nullable(UInt64)) uses arrayMap with coalesce",
+		},
+		{
+			name: "UInt64 converted via wildcard pattern *.*",
+			column: clickhouse.Column{
+				Name:     "any_field",
+				BaseType: "UInt64",
+				Type:     "UInt64",
+			},
+			tableName: "any_table",
+			config: config.ConversionConfig{
+				UInt64ToStringFields: []string{"*.*"},
+			},
+			expected: "toString(`any_field`) AS `any_field`",
+			desc:     "*.* pattern applies toString() to all UInt64 fields",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := getSelectColumnExpression(&tt.column, tt.tableName, &tt.config)
+			assert.Equal(t, tt.expected, result, tt.desc)
 		})
 	}
 }

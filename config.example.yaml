@@ -42,3 +42,26 @@ api_base_path: /api/v1
 # Non-empty list = only tables matching these prefixes get API endpoints
 # Example: ["fct_", "dim_"] will only generate APIs for fact and dimension tables
 api_table_prefixes: ["fct_"]
+
+# Type Conversion Options
+# These settings control type conversions during proto generation to handle specific requirements
+# like JavaScript's Number.MAX_SAFE_INTEGER limitation (2^53-1)
+
+conversion:
+  # Table-scoped UInt64 to string conversions (recommended for precision control)
+  # Use this when specific fields in specific tables need string representation
+  # to preserve precision beyond JavaScript's safe integer range
+  uint64_to_string:
+    fct_my_table_a:
+      - my_col_b
+      - my_col_f
+    fct_my_table_c:
+      - my_col_x
+      - my_col_y
+
+  # Alternative: CLI flag for quick testing or scripting
+  # Use --uint64-to-string flag with patterns:
+  #   --uint64-to-string "fct_my_table_a.my_col_f"                 # Exact: table.field
+  #   --uint64-to-string "*.my_col_x"                              # Wildcard: field in all tables
+  #   --uint64-to-string "fct_my_table_c.*"                        # Wildcard: all fields in table
+  #   --uint64-to-string "*.*"                                     # Wildcard: ALL fields in ALL tables

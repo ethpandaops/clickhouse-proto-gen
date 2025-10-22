@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/ethpandaops/clickhouse-proto-gen/internal/clickhouse"
+	"github.com/ethpandaops/clickhouse-proto-gen/internal/config"
 )
 
 // Proto type constants
@@ -34,8 +35,22 @@ func NewTypeMapper() *TypeMapper {
 }
 
 // MapType converts a ClickHouse type to a Protobuf type
-func (tm *TypeMapper) MapType(column *clickhouse.Column) (string, error) {
+func (tm *TypeMapper) MapType(column *clickhouse.Column, tableName string, convConfig *config.ConversionConfig) (string, error) {
 	baseType := column.BaseType
+
+	// Check if this UInt64 field should be converted to string for JavaScript precision
+	if baseType == typeUInt64 && convConfig.ShouldConvertToString(tableName, column.Name) {
+		// Handle Array(UInt64) → repeated string
+		if column.IsArray {
+			return "repeated string", nil
+		}
+		// Handle Nullable(UInt64) → google.protobuf.StringValue
+		if column.IsNullable {
+			return "google.protobuf.StringValue", nil
+		}
+		// Regular UInt64 → string
+		return protoString, nil
+	}
 
 	// Check for repeated field (Array)
 	var repeated bool
@@ -102,7 +117,7 @@ func (tm *TypeMapper) mapNumericType(baseType string) string {
 	// Unsigned integer types
 	case "UInt8", "UInt16", "UInt32":
 		return protoUInt32
-	case "UInt64":
+	case typeUInt64:
 		return protoUInt64
 	case "UInt128", "UInt256":
 		return protoString // No native uint128/256 in protobuf
@@ -405,8 +420,8 @@ type ProtoField struct {
 }
 
 // ConvertColumn converts a ClickHouse column to a ProtoField
-func (tm *TypeMapper) ConvertColumn(column *clickhouse.Column) (*ProtoField, error) {
-	protoType, err := tm.MapType(column)
+func (tm *TypeMapper) ConvertColumn(column *clickhouse.Column, tableName string, convConfig *config.ConversionConfig) (*ProtoField, error) {
+	protoType, err := tm.MapType(column, tableName, convConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to map type for column %s: %w", column.Name, err)
 	}
@@ -477,7 +492,7 @@ func (tm *TypeMapper) getMapFilterType(columnType string) string {
 			return "MapStringStringFilter"
 		case "UInt32", "UInt8", "UInt16":
 			return "MapStringUInt32Filter"
-		case "UInt64":
+		case typeUInt64:
 			return "MapStringUInt64Filter"
 		case "Int32", "Int8", "Int16":
 			return "MapStringInt32Filter"
@@ -523,10 +538,19 @@ func (tm *TypeMapper) getScalarFilterType(column *clickhouse.Column) string {
 }
 
 // GetFilterTypeForColumn returns the appropriate filter type for a column based on its type and nullability
-func (tm *TypeMapper) GetFilterTypeForColumn(column *clickhouse.Column) string {
+func (tm *TypeMapper) GetFilterTypeForColumn(column *clickhouse.Column, tableName string, convConfig *config.ConversionConfig) string {
 	// Arrays don't use filter types
 	if column.IsArray {
 		return ""
+	}
+
+	// Check if this UInt64 should be converted to string
+	if column.BaseType == typeUInt64 && convConfig.ShouldConvertToString(tableName, column.Name) {
+		// Use StringFilter for converted UInt64 fields
+		if column.IsNullable {
+			return "NullableStringFilter"
+		}
+		return "StringFilter"
 	}
 
 	// Check if it's a Map type
