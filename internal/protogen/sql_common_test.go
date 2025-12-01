@@ -99,11 +99,11 @@ func TestBuildParameterizedQueryImplementation(t *testing.T) {
 	// Check that BuildParameterizedQuery uses opts.Database correctly
 	assert.Contains(t, generatedCode, "if opts.Database != \"\"",
 		"Should check if database is provided")
-	// The generated code should have backticks around the database name
+	// The generated code should have backticks around the database name and table alias
 	assert.Contains(t, generatedCode, "opts.Database, table)",
 		"Should format with database when provided")
-	assert.Contains(t, generatedCode, "fromClause = table",
-		"Should use table only when database not provided")
+	assert.Contains(t, generatedCode, "AS _t",
+		"Should add table alias for disambiguation")
 }
 
 // TestGeneratedSQLHelperFiles tests that generated SQL helper files use the new signature
