@@ -39,15 +39,15 @@ type Config struct {
 
 // ConversionConfig holds configuration for type conversions during proto generation.
 type ConversionConfig struct {
-	// UInt64ToString is a table-scoped map of field names to convert from UInt64 to string.
+	// BigIntToString is a table-scoped map of field names to convert from Int64/UInt64 to string.
 	// Map key is the table name, value is a list of field names in that table.
 	// Example: {"fct_prepared_block": ["consensus_payload_value", "execution_payload_value"]}
-	UInt64ToString map[string][]string `yaml:"uint64_to_string"`
+	BigIntToString map[string][]string `yaml:"bigint_to_string"`
 
-	// UInt64ToStringFields is a flattened list for CLI compatibility.
+	// BigIntToStringFields is a flattened list for CLI compatibility.
 	// Supports patterns like "table.field", "*.field", or "field".
 	// Populated from CLI flags and merged with table-scoped configurations.
-	UInt64ToStringFields []string `yaml:"uint64_to_string_fields"`
+	BigIntToStringFields []string `yaml:"bigint_to_string_fields"`
 }
 
 // NewConfig creates a new Config instance with default values.
@@ -102,7 +102,7 @@ func (c *Config) Validate() error {
 }
 
 // MergeFlags merges command-line flags into the configuration.
-func (c *Config) MergeFlags(dsn, outputDir, pkg, goPkg, tables string, includeComments bool, maxPageSize int32, enableAPI bool, apiBasePath, apiTablePrefixes, uint64ToStringFields string) {
+func (c *Config) MergeFlags(dsn, outputDir, pkg, goPkg, tables string, includeComments bool, maxPageSize int32, enableAPI bool, apiBasePath, apiTablePrefixes, bigIntToStringFields string) {
 	if dsn != "" {
 		c.DSN = dsn
 	}
@@ -139,19 +139,19 @@ func (c *Config) MergeFlags(dsn, outputDir, pkg, goPkg, tables string, includeCo
 	}
 
 	// Type conversion flags
-	if uint64ToStringFields != "" {
-		c.Conversion.UInt64ToStringFields = strings.Split(uint64ToStringFields, ",")
-		for i := range c.Conversion.UInt64ToStringFields {
-			c.Conversion.UInt64ToStringFields[i] = strings.TrimSpace(c.Conversion.UInt64ToStringFields[i])
+	if bigIntToStringFields != "" {
+		c.Conversion.BigIntToStringFields = strings.Split(bigIntToStringFields, ",")
+		for i := range c.Conversion.BigIntToStringFields {
+			c.Conversion.BigIntToStringFields[i] = strings.TrimSpace(c.Conversion.BigIntToStringFields[i])
 		}
 	}
 }
 
-// ShouldConvertToString checks if a UInt64 field should be converted to string.
+// ShouldConvertToString checks if an Int64/UInt64 field should be converted to string.
 // It checks table-scoped and CLI-provided field patterns.
 func (cc *ConversionConfig) ShouldConvertToString(tableName, fieldName string) bool {
-	// Check table-scoped configuration
-	if fields, ok := cc.UInt64ToString[tableName]; ok {
+	// Check table-scoped configuration (bigint_to_string)
+	if fields, ok := cc.BigIntToString[tableName]; ok {
 		for _, f := range fields {
 			if f == fieldName {
 				return true
@@ -159,8 +159,8 @@ func (cc *ConversionConfig) ShouldConvertToString(tableName, fieldName string) b
 		}
 	}
 
-	// Check CLI-provided fields with pattern matching
-	for _, pattern := range cc.UInt64ToStringFields {
+	// Check CLI-provided fields with pattern matching (bigint_to_string_fields)
+	for _, pattern := range cc.BigIntToStringFields {
 		if matchesPattern(pattern, tableName, fieldName) {
 			return true
 		}

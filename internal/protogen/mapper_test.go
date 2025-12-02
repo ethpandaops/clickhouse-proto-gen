@@ -913,9 +913,9 @@ func TestIsFixedString(t *testing.T) {
 	}
 }
 
-// TestMapType_UInt64ToStringConversion tests that UInt64 fields are converted to string
+// TestMapType_BigIntToStringConversion tests that UInt64 fields are converted to string
 // when they are whitelisted in the conversion configuration
-func TestMapType_UInt64ToStringConversion(t *testing.T) {
+func TestMapType_BigIntToStringConversion(t *testing.T) {
 	tm := NewTypeMapper()
 
 	tests := []struct {
@@ -936,7 +936,7 @@ func TestMapType_UInt64ToStringConversion(t *testing.T) {
 			},
 			tableName: "fct_prepared_block",
 			config: config.ConversionConfig{
-				UInt64ToString: map[string][]string{
+				BigIntToString: map[string][]string{
 					"fct_prepared_block": {"consensus_payload_value"},
 				},
 			},
@@ -967,7 +967,7 @@ func TestMapType_UInt64ToStringConversion(t *testing.T) {
 			},
 			tableName: "fct_prepared_block",
 			config: config.ConversionConfig{
-				UInt64ToString: map[string][]string{
+				BigIntToString: map[string][]string{
 					"fct_prepared_block": {"consensus_payload_value"},
 				},
 			},
@@ -999,7 +999,7 @@ func TestMapType_UInt64ToStringConversion(t *testing.T) {
 			},
 			tableName: "fct_prepared_block",
 			config: config.ConversionConfig{
-				UInt64ToString: map[string][]string{
+				BigIntToString: map[string][]string{
 					"fct_prepared_block": {"values"},
 				},
 			},
@@ -1030,7 +1030,7 @@ func TestMapType_UInt64ToStringConversion(t *testing.T) {
 			},
 			tableName: "any_table",
 			config: config.ConversionConfig{
-				UInt64ToStringFields: []string{"*.*"},
+				BigIntToStringFields: []string{"*.*"},
 			},
 			expected: "string",
 			desc:     "*.* pattern converts all UInt64 fields",
@@ -1044,7 +1044,7 @@ func TestMapType_UInt64ToStringConversion(t *testing.T) {
 			},
 			tableName: "any_table",
 			config: config.ConversionConfig{
-				UInt64ToStringFields: []string{"*.block_number"},
+				BigIntToStringFields: []string{"*.block_number"},
 			},
 			expected: "string",
 			desc:     "*.field pattern converts specific field across all tables",
@@ -1058,7 +1058,7 @@ func TestMapType_UInt64ToStringConversion(t *testing.T) {
 			},
 			tableName: "fct_prepared_block",
 			config: config.ConversionConfig{
-				UInt64ToStringFields: []string{"fct_prepared_block.*"},
+				BigIntToStringFields: []string{"fct_prepared_block.*"},
 			},
 			expected: "string",
 			desc:     "table.* pattern converts all fields in specific table",
@@ -1074,7 +1074,7 @@ func TestMapType_UInt64ToStringConversion(t *testing.T) {
 			},
 			tableName: "fct_prepared_block",
 			config: config.ConversionConfig{
-				UInt64ToString: map[string][]string{
+				BigIntToString: map[string][]string{
 					"fct_prepared_block": {"consensus_payload_value"},
 				},
 			},
@@ -1090,7 +1090,7 @@ func TestMapType_UInt64ToStringConversion(t *testing.T) {
 			},
 			tableName: "fct_prepared_block",
 			config: config.ConversionConfig{
-				UInt64ToString: map[string][]string{
+				BigIntToString: map[string][]string{
 					"fct_prepared_block": {"consensus_payload_value"},
 				},
 			},
@@ -1108,9 +1108,9 @@ func TestMapType_UInt64ToStringConversion(t *testing.T) {
 	}
 }
 
-// TestGetFilterTypeForColumn_UInt64ToStringConversion tests that filter types are correct
+// TestGetFilterTypeForColumn_BigIntToStringConversion tests that filter types are correct
 // for converted UInt64 fields
-func TestGetFilterTypeForColumn_UInt64ToStringConversion(t *testing.T) {
+func TestGetFilterTypeForColumn_BigIntToStringConversion(t *testing.T) {
 	tm := NewTypeMapper()
 
 	tests := []struct {
@@ -1130,7 +1130,7 @@ func TestGetFilterTypeForColumn_UInt64ToStringConversion(t *testing.T) {
 			},
 			tableName: "fct_prepared_block",
 			config: config.ConversionConfig{
-				UInt64ToString: map[string][]string{
+				BigIntToString: map[string][]string{
 					"fct_prepared_block": {"consensus_payload_value"},
 				},
 			},
@@ -1159,7 +1159,7 @@ func TestGetFilterTypeForColumn_UInt64ToStringConversion(t *testing.T) {
 			},
 			tableName: "fct_prepared_block",
 			config: config.ConversionConfig{
-				UInt64ToString: map[string][]string{
+				BigIntToString: map[string][]string{
 					"fct_prepared_block": {"consensus_payload_value"},
 				},
 			},
@@ -1189,7 +1189,7 @@ func TestGetFilterTypeForColumn_UInt64ToStringConversion(t *testing.T) {
 			},
 			tableName: "fct_prepared_block",
 			config: config.ConversionConfig{
-				UInt64ToString: map[string][]string{
+				BigIntToString: map[string][]string{
 					"fct_prepared_block": {"values"},
 				},
 			},
@@ -1206,9 +1206,9 @@ func TestGetFilterTypeForColumn_UInt64ToStringConversion(t *testing.T) {
 	}
 }
 
-// TestGetSelectColumnExpression_UInt64ToStringConversion tests that SQL SELECT expressions
+// TestGetSelectColumnExpression_BigIntToStringConversion tests that SQL SELECT expressions
 // use toString() for converted UInt64 fields
-func TestGetSelectColumnExpression_UInt64ToStringConversion(t *testing.T) {
+func TestGetSelectColumnExpression_BigIntToStringConversion(t *testing.T) {
 	tests := []struct {
 		name      string
 		column    clickhouse.Column
@@ -1226,7 +1226,7 @@ func TestGetSelectColumnExpression_UInt64ToStringConversion(t *testing.T) {
 			},
 			tableName: "fct_prepared_block",
 			config: config.ConversionConfig{
-				UInt64ToString: map[string][]string{
+				BigIntToString: map[string][]string{
 					"fct_prepared_block": {"consensus_payload_value"},
 				},
 			},
@@ -1255,7 +1255,7 @@ func TestGetSelectColumnExpression_UInt64ToStringConversion(t *testing.T) {
 			},
 			tableName: "fct_prepared_block",
 			config: config.ConversionConfig{
-				UInt64ToString: map[string][]string{
+				BigIntToString: map[string][]string{
 					"fct_prepared_block": {"values"},
 				},
 			},
@@ -1273,7 +1273,7 @@ func TestGetSelectColumnExpression_UInt64ToStringConversion(t *testing.T) {
 			},
 			tableName: "fct_prepared_block",
 			config: config.ConversionConfig{
-				UInt64ToString: map[string][]string{
+				BigIntToString: map[string][]string{
 					"fct_prepared_block": {"values"},
 				},
 			},
@@ -1289,7 +1289,7 @@ func TestGetSelectColumnExpression_UInt64ToStringConversion(t *testing.T) {
 			},
 			tableName: "any_table",
 			config: config.ConversionConfig{
-				UInt64ToStringFields: []string{"*.*"},
+				BigIntToStringFields: []string{"*.*"},
 			},
 			expected: "toString(`any_field`) AS `any_field`",
 			desc:     "*.* pattern applies toString() to all UInt64 fields",

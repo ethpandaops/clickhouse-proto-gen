@@ -44,7 +44,7 @@ var (
 	enableAPI            bool
 	apiBasePath          string
 	apiTablePrefixes     string
-	uint64ToStringFields string
+	bigIntToStringFields string
 )
 
 func main() {
@@ -99,7 +99,7 @@ func init() {
 	rootCmd.Flags().StringVar(&apiTablePrefixes, "api-table-prefixes", "", "Comma-separated list of table prefixes to expose via REST API (e.g., fct_,dim_)")
 
 	// Type conversion flags
-	rootCmd.Flags().StringVar(&uint64ToStringFields, "uint64-to-string", "", "Comma-separated list of UInt64 fields to convert to string for JavaScript precision (e.g., 'table.field,*.field')")
+	rootCmd.Flags().StringVar(&bigIntToStringFields, "bigint-to-string", "", "Comma-separated list of Int64/UInt64 fields to convert to string for JavaScript precision (e.g., 'table.field,*.field')")
 }
 
 func run(_ *cobra.Command, _ []string) error {
@@ -117,7 +117,7 @@ func run(_ *cobra.Command, _ []string) error {
 	}
 
 	// Merge command-line flags (override config file values)
-	cfg.MergeFlags(dsn, outputDir, pkg, goPackage, tables, includeComments, maxPageSize, enableAPI, apiBasePath, apiTablePrefixes, uint64ToStringFields)
+	cfg.MergeFlags(dsn, outputDir, pkg, goPackage, tables, includeComments, maxPageSize, enableAPI, apiBasePath, apiTablePrefixes, bigIntToStringFields)
 
 	// Validate configuration
 	if err := cfg.Validate(); err != nil {

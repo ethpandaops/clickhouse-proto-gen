@@ -647,7 +647,7 @@ func TestConversionConfig_ShouldConvertToString(t *testing.T) {
 		{
 			name: "table-scoped exact match",
 			config: ConversionConfig{
-				UInt64ToString: map[string][]string{
+				BigIntToString: map[string][]string{
 					"fct_prepared_block": {"consensus_payload_value", "execution_payload_value"},
 				},
 			},
@@ -658,7 +658,7 @@ func TestConversionConfig_ShouldConvertToString(t *testing.T) {
 		{
 			name: "table-scoped no match - different field",
 			config: ConversionConfig{
-				UInt64ToString: map[string][]string{
+				BigIntToString: map[string][]string{
 					"fct_prepared_block": {"consensus_payload_value"},
 				},
 			},
@@ -669,7 +669,7 @@ func TestConversionConfig_ShouldConvertToString(t *testing.T) {
 		{
 			name: "table-scoped no match - different table",
 			config: ConversionConfig{
-				UInt64ToString: map[string][]string{
+				BigIntToString: map[string][]string{
 					"fct_prepared_block": {"consensus_payload_value"},
 				},
 			},
@@ -682,7 +682,7 @@ func TestConversionConfig_ShouldConvertToString(t *testing.T) {
 		{
 			name: "CLI pattern - exact table.field match",
 			config: ConversionConfig{
-				UInt64ToStringFields: []string{"fct_prepared_block.consensus_payload_value"},
+				BigIntToStringFields: []string{"fct_prepared_block.consensus_payload_value"},
 			},
 			tableName: "fct_prepared_block",
 			fieldName: "consensus_payload_value",
@@ -691,7 +691,7 @@ func TestConversionConfig_ShouldConvertToString(t *testing.T) {
 		{
 			name: "CLI pattern - exact match no match different table",
 			config: ConversionConfig{
-				UInt64ToStringFields: []string{"fct_prepared_block.consensus_payload_value"},
+				BigIntToStringFields: []string{"fct_prepared_block.consensus_payload_value"},
 			},
 			tableName: "other_table",
 			fieldName: "consensus_payload_value",
@@ -702,7 +702,7 @@ func TestConversionConfig_ShouldConvertToString(t *testing.T) {
 		{
 			name: "CLI pattern - wildcard table *.field",
 			config: ConversionConfig{
-				UInt64ToStringFields: []string{"*.block_number"},
+				BigIntToStringFields: []string{"*.block_number"},
 			},
 			tableName: "fct_prepared_block",
 			fieldName: "block_number",
@@ -711,7 +711,7 @@ func TestConversionConfig_ShouldConvertToString(t *testing.T) {
 		{
 			name: "CLI pattern - wildcard table *.field matches any table",
 			config: ConversionConfig{
-				UInt64ToStringFields: []string{"*.slot"},
+				BigIntToStringFields: []string{"*.slot"},
 			},
 			tableName: "any_table",
 			fieldName: "slot",
@@ -720,7 +720,7 @@ func TestConversionConfig_ShouldConvertToString(t *testing.T) {
 		{
 			name: "CLI pattern - wildcard table *.field no match different field",
 			config: ConversionConfig{
-				UInt64ToStringFields: []string{"*.block_number"},
+				BigIntToStringFields: []string{"*.block_number"},
 			},
 			tableName: "fct_prepared_block",
 			fieldName: "slot",
@@ -731,7 +731,7 @@ func TestConversionConfig_ShouldConvertToString(t *testing.T) {
 		{
 			name: "CLI pattern - specific table wildcard field table.*",
 			config: ConversionConfig{
-				UInt64ToStringFields: []string{"fct_prepared_block.*"},
+				BigIntToStringFields: []string{"fct_prepared_block.*"},
 			},
 			tableName: "fct_prepared_block",
 			fieldName: "any_field",
@@ -740,7 +740,7 @@ func TestConversionConfig_ShouldConvertToString(t *testing.T) {
 		{
 			name: "CLI pattern - specific table wildcard field table.* no match different table",
 			config: ConversionConfig{
-				UInt64ToStringFields: []string{"fct_prepared_block.*"},
+				BigIntToStringFields: []string{"fct_prepared_block.*"},
 			},
 			tableName: "other_table",
 			fieldName: "any_field",
@@ -751,7 +751,7 @@ func TestConversionConfig_ShouldConvertToString(t *testing.T) {
 		{
 			name: "CLI pattern - full wildcard *.* matches everything",
 			config: ConversionConfig{
-				UInt64ToStringFields: []string{"*.*"},
+				BigIntToStringFields: []string{"*.*"},
 			},
 			tableName: "any_table",
 			fieldName: "any_field",
@@ -762,7 +762,7 @@ func TestConversionConfig_ShouldConvertToString(t *testing.T) {
 		{
 			name: "CLI pattern - field only (no prefix) matches any table",
 			config: ConversionConfig{
-				UInt64ToStringFields: []string{"block_number"},
+				BigIntToStringFields: []string{"block_number"},
 			},
 			tableName: "any_table",
 			fieldName: "block_number",
@@ -771,7 +771,7 @@ func TestConversionConfig_ShouldConvertToString(t *testing.T) {
 		{
 			name: "CLI pattern - field only no match different field",
 			config: ConversionConfig{
-				UInt64ToStringFields: []string{"block_number"},
+				BigIntToStringFields: []string{"block_number"},
 			},
 			tableName: "any_table",
 			fieldName: "slot",
@@ -782,10 +782,10 @@ func TestConversionConfig_ShouldConvertToString(t *testing.T) {
 		{
 			name: "combined - table-scoped match",
 			config: ConversionConfig{
-				UInt64ToString: map[string][]string{
+				BigIntToString: map[string][]string{
 					"fct_prepared_block": {"consensus_payload_value"},
 				},
-				UInt64ToStringFields: []string{"*.block_number"},
+				BigIntToStringFields: []string{"*.block_number"},
 			},
 			tableName: "fct_prepared_block",
 			fieldName: "consensus_payload_value",
@@ -794,10 +794,10 @@ func TestConversionConfig_ShouldConvertToString(t *testing.T) {
 		{
 			name: "combined - CLI pattern match",
 			config: ConversionConfig{
-				UInt64ToString: map[string][]string{
+				BigIntToString: map[string][]string{
 					"fct_prepared_block": {"consensus_payload_value"},
 				},
-				UInt64ToStringFields: []string{"*.block_number"},
+				BigIntToStringFields: []string{"*.block_number"},
 			},
 			tableName: "other_table",
 			fieldName: "block_number",
@@ -806,10 +806,10 @@ func TestConversionConfig_ShouldConvertToString(t *testing.T) {
 		{
 			name: "combined - no match",
 			config: ConversionConfig{
-				UInt64ToString: map[string][]string{
+				BigIntToString: map[string][]string{
 					"fct_prepared_block": {"consensus_payload_value"},
 				},
-				UInt64ToStringFields: []string{"*.block_number"},
+				BigIntToStringFields: []string{"*.block_number"},
 			},
 			tableName: "other_table",
 			fieldName: "slot",
@@ -949,11 +949,11 @@ func TestMatchesPattern(t *testing.T) {
 
 func TestConversionConfig_MultiplePatterns(t *testing.T) {
 	config := ConversionConfig{
-		UInt64ToString: map[string][]string{
+		BigIntToString: map[string][]string{
 			"fct_prepared_block":         {"consensus_payload_value", "execution_payload_value"},
 			"fct_block_native_transfers": {"value", "gas_price"},
 		},
-		UInt64ToStringFields: []string{
+		BigIntToStringFields: []string{
 			"*.block_number",
 			"*.slot",
 			"fct_beacon_state.*",

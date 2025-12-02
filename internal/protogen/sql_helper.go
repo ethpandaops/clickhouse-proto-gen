@@ -171,17 +171,17 @@ func getDefaultValueForType(baseType string) string {
 func getSelectColumnExpression(col *clickhouse.Column, tableName string, convConfig *config.ConversionConfig) string {
 	hasNullable := hasNullableArrayElements(col)
 
-	// PRIORITY 1: Check if this UInt64 should be converted to string for JavaScript precision
-	if col.BaseType == typeUInt64 && convConfig.ShouldConvertToString(tableName, col.Name) {
+	// PRIORITY 1: Check if this Int64/UInt64 should be converted to string for JavaScript precision
+	if (col.BaseType == typeUInt64 || col.BaseType == typeInt64) && convConfig.ShouldConvertToString(tableName, col.Name) {
 		if col.IsArray {
 			if hasNullable {
-				// Array(Nullable(UInt64)) → Array(String) with NULL handling
+				// Array(Nullable(Int64/UInt64)) → Array(String) with NULL handling
 				return fmt.Sprintf("arrayMap(x -> toString(coalesce(x, 0)), `%s`) AS `%s`", col.Name, col.Name)
 			}
-			// Array(UInt64) → Array(String)
+			// Array(Int64/UInt64) → Array(String)
 			return fmt.Sprintf("arrayMap(x -> toString(x), `%s`) AS `%s`", col.Name, col.Name)
 		}
-		// Regular UInt64 → String
+		// Regular Int64/UInt64 → String
 		return fmt.Sprintf("toString(`%s`) AS `%s`", col.Name, col.Name)
 	}
 
