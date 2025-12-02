@@ -537,11 +537,32 @@ func (tm *TypeMapper) getScalarFilterType(column *clickhouse.Column) string {
 	return baseFilterType
 }
 
+// getArrayFilterType returns the filter type for Array columns
+func (tm *TypeMapper) getArrayFilterType(column *clickhouse.Column) string {
+	protoType := tm.mapBaseType(column.BaseType, column.Type)
+
+	switch protoType {
+	case protoInt32:
+		return "ArrayInt32Filter"
+	case protoInt64:
+		return "ArrayInt64Filter"
+	case protoUInt32:
+		return "ArrayUInt32Filter"
+	case protoUInt64:
+		return "ArrayUInt64Filter"
+	case protoString:
+		return "ArrayStringFilter"
+	default:
+		// Unsupported array element type
+		return ""
+	}
+}
+
 // GetFilterTypeForColumn returns the appropriate filter type for a column based on its type and nullability
 func (tm *TypeMapper) GetFilterTypeForColumn(column *clickhouse.Column, tableName string, convConfig *config.ConversionConfig) string {
-	// Arrays don't use filter types
+	// Arrays use dedicated array filter types
 	if column.IsArray {
-		return ""
+		return tm.getArrayFilterType(column)
 	}
 
 	// Check if this Int64/UInt64 should be converted to string

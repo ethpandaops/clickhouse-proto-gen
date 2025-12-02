@@ -363,6 +363,97 @@ func (g *Generator) writeRangeTypes(sb *strings.Builder) {
 	sb.WriteString("    StringList has_all_keys = 5;            // mapContainsAll(mapColumn, ['k1', 'k2'])\n")
 	sb.WriteString("  }\n")
 	sb.WriteString("}\n\n")
+
+	// Array filter types
+	g.writeArrayFilterTypes(sb)
+}
+
+// writeArrayFilterTypes generates Array*Filter message types for filtering Array columns
+func (g *Generator) writeArrayFilterTypes(sb *strings.Builder) {
+	// ArrayUInt32Filter
+	sb.WriteString("// ArrayUInt32Filter represents filtering options for Array(UInt32) columns\n")
+	sb.WriteString("message ArrayUInt32Filter {\n")
+	sb.WriteString("  oneof filter {\n")
+	sb.WriteString("    uint32 has = 1;                         // has(arr, value) - array contains value\n")
+	sb.WriteString("    UInt32List has_all = 2;                 // hasAll(arr, [v1, v2]) - contains all values\n")
+	sb.WriteString("    UInt32List has_any = 3;                 // hasAny(arr, [v1, v2]) - contains any value\n")
+	sb.WriteString("    uint32 length_eq = 4;                   // length(arr) = n\n")
+	sb.WriteString("    uint32 length_gt = 5;                   // length(arr) > n\n")
+	sb.WriteString("    uint32 length_gte = 6;                  // length(arr) >= n\n")
+	sb.WriteString("    uint32 length_lt = 7;                   // length(arr) < n\n")
+	sb.WriteString("    uint32 length_lte = 8;                  // length(arr) <= n\n")
+	sb.WriteString("    google.protobuf.Empty is_empty = 9;     // empty(arr)\n")
+	sb.WriteString("    google.protobuf.Empty is_not_empty = 10; // notEmpty(arr)\n")
+	sb.WriteString("  }\n")
+	sb.WriteString("}\n\n")
+
+	// ArrayUInt64Filter
+	sb.WriteString("// ArrayUInt64Filter represents filtering options for Array(UInt64) columns\n")
+	sb.WriteString("message ArrayUInt64Filter {\n")
+	sb.WriteString("  oneof filter {\n")
+	sb.WriteString("    uint64 has = 1;                         // has(arr, value) - array contains value\n")
+	sb.WriteString("    UInt64List has_all = 2;                 // hasAll(arr, [v1, v2]) - contains all values\n")
+	sb.WriteString("    UInt64List has_any = 3;                 // hasAny(arr, [v1, v2]) - contains any value\n")
+	sb.WriteString("    uint32 length_eq = 4;                   // length(arr) = n\n")
+	sb.WriteString("    uint32 length_gt = 5;                   // length(arr) > n\n")
+	sb.WriteString("    uint32 length_gte = 6;                  // length(arr) >= n\n")
+	sb.WriteString("    uint32 length_lt = 7;                   // length(arr) < n\n")
+	sb.WriteString("    uint32 length_lte = 8;                  // length(arr) <= n\n")
+	sb.WriteString("    google.protobuf.Empty is_empty = 9;     // empty(arr)\n")
+	sb.WriteString("    google.protobuf.Empty is_not_empty = 10; // notEmpty(arr)\n")
+	sb.WriteString("  }\n")
+	sb.WriteString("}\n\n")
+
+	// ArrayInt32Filter
+	sb.WriteString("// ArrayInt32Filter represents filtering options for Array(Int32) columns\n")
+	sb.WriteString("message ArrayInt32Filter {\n")
+	sb.WriteString("  oneof filter {\n")
+	sb.WriteString("    int32 has = 1;                          // has(arr, value) - array contains value\n")
+	sb.WriteString("    Int32List has_all = 2;                  // hasAll(arr, [v1, v2]) - contains all values\n")
+	sb.WriteString("    Int32List has_any = 3;                  // hasAny(arr, [v1, v2]) - contains any value\n")
+	sb.WriteString("    uint32 length_eq = 4;                   // length(arr) = n\n")
+	sb.WriteString("    uint32 length_gt = 5;                   // length(arr) > n\n")
+	sb.WriteString("    uint32 length_gte = 6;                  // length(arr) >= n\n")
+	sb.WriteString("    uint32 length_lt = 7;                   // length(arr) < n\n")
+	sb.WriteString("    uint32 length_lte = 8;                  // length(arr) <= n\n")
+	sb.WriteString("    google.protobuf.Empty is_empty = 9;     // empty(arr)\n")
+	sb.WriteString("    google.protobuf.Empty is_not_empty = 10; // notEmpty(arr)\n")
+	sb.WriteString("  }\n")
+	sb.WriteString("}\n\n")
+
+	// ArrayInt64Filter
+	sb.WriteString("// ArrayInt64Filter represents filtering options for Array(Int64) columns\n")
+	sb.WriteString("message ArrayInt64Filter {\n")
+	sb.WriteString("  oneof filter {\n")
+	sb.WriteString("    int64 has = 1;                          // has(arr, value) - array contains value\n")
+	sb.WriteString("    Int64List has_all = 2;                  // hasAll(arr, [v1, v2]) - contains all values\n")
+	sb.WriteString("    Int64List has_any = 3;                  // hasAny(arr, [v1, v2]) - contains any value\n")
+	sb.WriteString("    uint32 length_eq = 4;                   // length(arr) = n\n")
+	sb.WriteString("    uint32 length_gt = 5;                   // length(arr) > n\n")
+	sb.WriteString("    uint32 length_gte = 6;                  // length(arr) >= n\n")
+	sb.WriteString("    uint32 length_lt = 7;                   // length(arr) < n\n")
+	sb.WriteString("    uint32 length_lte = 8;                  // length(arr) <= n\n")
+	sb.WriteString("    google.protobuf.Empty is_empty = 9;     // empty(arr)\n")
+	sb.WriteString("    google.protobuf.Empty is_not_empty = 10; // notEmpty(arr)\n")
+	sb.WriteString("  }\n")
+	sb.WriteString("}\n\n")
+
+	// ArrayStringFilter
+	sb.WriteString("// ArrayStringFilter represents filtering options for Array(String) columns\n")
+	sb.WriteString("message ArrayStringFilter {\n")
+	sb.WriteString("  oneof filter {\n")
+	sb.WriteString("    string has = 1;                         // has(arr, value) - array contains value\n")
+	sb.WriteString("    StringList has_all = 2;                 // hasAll(arr, [v1, v2]) - contains all values\n")
+	sb.WriteString("    StringList has_any = 3;                 // hasAny(arr, [v1, v2]) - contains any value\n")
+	sb.WriteString("    uint32 length_eq = 4;                   // length(arr) = n\n")
+	sb.WriteString("    uint32 length_gt = 5;                   // length(arr) > n\n")
+	sb.WriteString("    uint32 length_gte = 6;                  // length(arr) >= n\n")
+	sb.WriteString("    uint32 length_lt = 7;                   // length(arr) < n\n")
+	sb.WriteString("    uint32 length_lte = 8;                  // length(arr) <= n\n")
+	sb.WriteString("    google.protobuf.Empty is_empty = 9;     // empty(arr)\n")
+	sb.WriteString("    google.protobuf.Empty is_not_empty = 10; // notEmpty(arr)\n")
+	sb.WriteString("  }\n")
+	sb.WriteString("}\n\n")
 }
 
 func (g *Generator) writeCommonTypes(sb *strings.Builder) {

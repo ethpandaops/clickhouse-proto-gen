@@ -652,6 +652,12 @@ func (g *Generator) handleMapFilter(sb *strings.Builder, columnName, filterType,
 
 // writeFilterCases writes the appropriate filter cases based on the filter type
 func (g *Generator) writeFilterCases(sb *strings.Builder, columnName, filterType, indent string) {
+	// Handle Array filters
+	if strings.HasPrefix(filterType, "Array") && strings.HasSuffix(filterType, "Filter") {
+		g.writeArrayFilterCases(sb, columnName, filterType, indent)
+		return
+	}
+
 	// Handle string filters
 	if strings.Contains(filterType, "String") && !strings.HasPrefix(filterType, "Map") {
 		if strings.HasPrefix(filterType, "Nullable") {
@@ -1129,4 +1135,55 @@ func (g *Generator) writeMapStringNumericFilterCases(sb *strings.Builder, column
 	fmt.Fprintf(sb, "%s\t\t\tqb.AddMapContainsCondition(\"%s\", key)\n", indent, columnName)
 	fmt.Fprintf(sb, "%s\t\t}\n", indent)
 	fmt.Fprintf(sb, "%s\t}\n", indent)
+}
+
+// writeArrayFilterCases generates switch cases for Array*Filter types
+func (g *Generator) writeArrayFilterCases(sb *strings.Builder, columnName, filterType, indent string) {
+	// Extract element type from ArrayXxxFilter (e.g., "UInt32" from "ArrayUInt32Filter")
+	elementType := strings.TrimPrefix(filterType, "Array")
+	elementType = strings.TrimSuffix(elementType, "Filter")
+
+	// has - single value check
+	fmt.Fprintf(sb, "%scase *%s_Has:\n", indent, filterType)
+	fmt.Fprintf(sb, "%s\tqb.AddArrayHasCondition(\"%s\", filter.Has)\n", indent, columnName)
+
+	// has_all - all values must exist
+	fmt.Fprintf(sb, "%scase *%s_HasAll:\n", indent, filterType)
+	fmt.Fprintf(sb, "%s\tif len(filter.HasAll.Values) > 0 {\n", indent)
+	fmt.Fprintf(sb, "%s\t\tqb.AddArrayHasAllCondition(\"%s\", %sSliceToInterface(filter.HasAll.Values))\n", indent, columnName, elementType)
+	fmt.Fprintf(sb, "%s\t}\n", indent)
+
+	// has_any - any value exists
+	fmt.Fprintf(sb, "%scase *%s_HasAny:\n", indent, filterType)
+	fmt.Fprintf(sb, "%s\tif len(filter.HasAny.Values) > 0 {\n", indent)
+	fmt.Fprintf(sb, "%s\t\tqb.AddArrayHasAnyCondition(\"%s\", %sSliceToInterface(filter.HasAny.Values))\n", indent, columnName, elementType)
+	fmt.Fprintf(sb, "%s\t}\n", indent)
+
+	// length_eq
+	fmt.Fprintf(sb, "%scase *%s_LengthEq:\n", indent, filterType)
+	fmt.Fprintf(sb, "%s\tqb.AddArrayLengthCondition(\"%s\", \"=\", filter.LengthEq)\n", indent, columnName)
+
+	// length_gt
+	fmt.Fprintf(sb, "%scase *%s_LengthGt:\n", indent, filterType)
+	fmt.Fprintf(sb, "%s\tqb.AddArrayLengthCondition(\"%s\", \">\", filter.LengthGt)\n", indent, columnName)
+
+	// length_gte
+	fmt.Fprintf(sb, "%scase *%s_LengthGte:\n", indent, filterType)
+	fmt.Fprintf(sb, "%s\tqb.AddArrayLengthCondition(\"%s\", \">=\", filter.LengthGte)\n", indent, columnName)
+
+	// length_lt
+	fmt.Fprintf(sb, "%scase *%s_LengthLt:\n", indent, filterType)
+	fmt.Fprintf(sb, "%s\tqb.AddArrayLengthCondition(\"%s\", \"<\", filter.LengthLt)\n", indent, columnName)
+
+	// length_lte
+	fmt.Fprintf(sb, "%scase *%s_LengthLte:\n", indent, filterType)
+	fmt.Fprintf(sb, "%s\tqb.AddArrayLengthCondition(\"%s\", \"<=\", filter.LengthLte)\n", indent, columnName)
+
+	// is_empty
+	fmt.Fprintf(sb, "%scase *%s_IsEmpty:\n", indent, filterType)
+	fmt.Fprintf(sb, "%s\tqb.AddArrayIsEmptyCondition(\"%s\")\n", indent, columnName)
+
+	// is_not_empty
+	fmt.Fprintf(sb, "%scase *%s_IsNotEmpty:\n", indent, filterType)
+	fmt.Fprintf(sb, "%s\tqb.AddArrayIsNotEmptyCondition(\"%s\")\n", indent, columnName)
 }
