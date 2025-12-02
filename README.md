@@ -143,7 +143,7 @@ See [config.example.yaml](config.example.yaml) for a complete example with all a
 | `--go-package` | Go package import path | - |
 | `--include-comments` | Include comments in proto | true |
 | `--max-page-size` | Maximum page size for List operations | 10000 |
-| `--uint64-to-string` | Convert UInt64 fields to string (see below) | - |
+| `--bigint-to-string` | Convert Int64/UInt64 fields to string (see below) | - |
 | `--config` | Path to YAML config file | - |
 | `--verbose` | Enable verbose output | false |
 | `--debug` | Enable debug output | false |
@@ -155,10 +155,10 @@ See [config.example.yaml](config.example.yaml) for a complete example with all a
 | ClickHouse Type | Proto Type | Notes |
 |-----------------|------------|-------|
 | `Int8`, `Int16`, `Int32` | `int32` | |
-| `Int64` | `int64` | |
+| `Int64` | `int64` | Can be converted to `string` (see BigInt Conversion below) |
 | `Int128`, `Int256` | `string` | No native support in protobuf |
 | `UInt8`, `UInt16`, `UInt32` | `uint32` | |
-| `UInt64` | `uint64` | Can be converted to `string` (see UInt64 Conversion below) |
+| `UInt64` | `uint64` | Can be converted to `string` (see BigInt Conversion below) |
 | `Float32` | `float` | |
 | `Float64` | `double` | |
 | `Decimal*` | `string` | Preserves precision |
@@ -174,11 +174,11 @@ See [config.example.yaml](config.example.yaml) for a complete example with all a
 | `Enum8`, `Enum16` | `string` | Enum value as string |
 | `IPv4`, `IPv6` | `string` | IP address as string |
 
-### UInt64 to String Conversion
+### BigInt to String Conversion
 
-**Problem**: JavaScript's `Number` type cannot safely represent integers beyond `Number.MAX_SAFE_INTEGER` (2^53-1 = 9,007,199,254,740,991). Large UInt64 values lose precision when parsed from JSON.
+**Problem**: JavaScript's `Number` type cannot safely represent integers beyond `Number.MAX_SAFE_INTEGER` (2^53-1 = 9,007,199,254,740,991). Large Int64/UInt64 values lose precision when parsed from JSON.
 
-This project provides a way to convert specific (or all) UInt64 fields to string to preserve precision for JavaScript/TypeScript clients.
+This project provides a way to convert specific (or all) Int64/UInt64 fields to string to preserve precision for JavaScript/TypeScript clients.
 
 #### Configuration Methods
 
@@ -186,7 +186,7 @@ This project provides a way to convert specific (or all) UInt64 fields to string
 
 ```yaml
 conversion:
-  uint64_to_string:
+  bigint_to_string:
     fct_my_table:
       - my_column_a
       - my_column_b
@@ -199,19 +199,19 @@ conversion:
 
 ```bash
 # Exact field in exact table
---uint64-to-string "fct_my_table.my_column_a"
+--bigint-to-string "fct_my_table.my_column_a"
 
 # Specific field in all tables
---uint64-to-string "*.my_column_x"
+--bigint-to-string "*.my_column_x"
 
 # All fields in specific table
---uint64-to-string "int_my_other_table.*"
+--bigint-to-string "int_my_other_table.*"
 
-# ALL UInt64 fields in ALL tables
---uint64-to-string "*.*"
+# ALL Int64/UInt64 fields in ALL tables
+--bigint-to-string "*.*"
 
 # Multiple patterns (comma-separated)
---uint64-to-string "*.my_column_b,*.my_column_y,fct_my_table.*"
+--bigint-to-string "*.my_column_b,*.my_column_y,fct_my_table.*"
 ```
 
 ## Examples

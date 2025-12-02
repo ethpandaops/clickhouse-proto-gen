@@ -38,17 +38,17 @@ func NewTypeMapper() *TypeMapper {
 func (tm *TypeMapper) MapType(column *clickhouse.Column, tableName string, convConfig *config.ConversionConfig) (string, error) {
 	baseType := column.BaseType
 
-	// Check if this UInt64 field should be converted to string for JavaScript precision
-	if baseType == typeUInt64 && convConfig.ShouldConvertToString(tableName, column.Name) {
-		// Handle Array(UInt64) → repeated string
+	// Check if this Int64/UInt64 field should be converted to string for JavaScript precision
+	if (baseType == typeUInt64 || baseType == typeInt64) && convConfig.ShouldConvertToString(tableName, column.Name) {
+		// Handle Array(Int64/UInt64) → repeated string
 		if column.IsArray {
 			return "repeated string", nil
 		}
-		// Handle Nullable(UInt64) → google.protobuf.StringValue
+		// Handle Nullable(Int64/UInt64) → google.protobuf.StringValue
 		if column.IsNullable {
 			return "google.protobuf.StringValue", nil
 		}
-		// Regular UInt64 → string
+		// Regular Int64/UInt64 → string
 		return protoString, nil
 	}
 
@@ -544,9 +544,9 @@ func (tm *TypeMapper) GetFilterTypeForColumn(column *clickhouse.Column, tableNam
 		return ""
 	}
 
-	// Check if this UInt64 should be converted to string
-	if column.BaseType == typeUInt64 && convConfig.ShouldConvertToString(tableName, column.Name) {
-		// Use StringFilter for converted UInt64 fields
+	// Check if this Int64/UInt64 should be converted to string
+	if (column.BaseType == typeUInt64 || column.BaseType == typeInt64) && convConfig.ShouldConvertToString(tableName, column.Name) {
+		// Use StringFilter for converted Int64/UInt64 fields
 		if column.IsNullable {
 			return "NullableStringFilter"
 		}

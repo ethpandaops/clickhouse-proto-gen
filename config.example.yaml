@@ -48,10 +48,10 @@ api_table_prefixes: ["fct_"]
 # like JavaScript's Number.MAX_SAFE_INTEGER limitation (2^53-1)
 
 conversion:
-  # Table-scoped UInt64 to string conversions (recommended for precision control)
+  # Table-scoped Int64/UInt64 to string conversions (recommended for precision control)
   # Use this when specific fields in specific tables need string representation
   # to preserve precision beyond JavaScript's safe integer range
-  uint64_to_string:
+  bigint_to_string:
     fct_my_table_a:
       - my_col_b
       - my_col_f
@@ -60,8 +60,8 @@ conversion:
       - my_col_y
 
   # Alternative: CLI flag for quick testing or scripting
-  # Use --uint64-to-string flag with patterns:
-  #   --uint64-to-string "fct_my_table_a.my_col_f"                 # Exact: table.field
-  #   --uint64-to-string "*.my_col_x"                              # Wildcard: field in all tables
-  #   --uint64-to-string "fct_my_table_c.*"                        # Wildcard: all fields in table
-  #   --uint64-to-string "*.*"                                     # Wildcard: ALL fields in ALL tables
+  # Use --bigint-to-string flag with patterns:
+  #   --bigint-to-string "fct_my_table_a.my_col_f"                 # Exact: table.field
+  #   --bigint-to-string "*.my_col_x"                              # Wildcard: field in all tables
+  #   --bigint-to-string "fct_my_table_c.*"                        # Wildcard: all fields in table
+  #   --bigint-to-string "*.*"                                     # Wildcard: ALL fields in ALL tables

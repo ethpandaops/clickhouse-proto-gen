@@ -654,7 +654,7 @@ func getProtoTypeForColumn(column *clickhouse.Column) string {
 	return getProtoType(column.BaseType)
 }
 
-// validateConversionConfig validates the UInt64-to-string conversion configuration
+// validateConversionConfig validates the bigint-to-string conversion configuration
 // and logs warnings for any misconfigured fields
 //
 //nolint:gocyclo // Validation logic complexity is acceptable
@@ -684,12 +684,12 @@ func (g *Generator) buildTableColumnsMap(tables []*clickhouse.Table) map[string]
 	return tableColumns
 }
 
-// validateTableScopedConversions validates table-scoped uint64-to-string conversions
+// validateTableScopedConversions validates table-scoped bigint-to-string conversions
 func (g *Generator) validateTableScopedConversions(convConfig *config.ConversionConfig, tableColumns map[string]map[string]*clickhouse.Column) {
-	for tableName, fieldNames := range convConfig.UInt64ToString {
+	for tableName, fieldNames := range convConfig.BigIntToString {
 		colMap, tableExists := tableColumns[tableName]
 		if !tableExists {
-			g.log.WithField("table", tableName).Warn("Table specified in uint64_to_string conversion config not found in tables being generated")
+			g.log.WithField("table", tableName).Warn("Table specified in bigint_to_string conversion config not found in tables being generated")
 			continue
 		}
 
@@ -697,7 +697,7 @@ func (g *Generator) validateTableScopedConversions(convConfig *config.Conversion
 	}
 }
 
-// validateFieldsInTable validates that fields exist and are UInt64 type
+// validateFieldsInTable validates that fields exist and are Int64/UInt64 type
 func (g *Generator) validateFieldsInTable(tableName string, fieldNames []string, colMap map[string]*clickhouse.Column) {
 	for _, fieldName := range fieldNames {
 		col, exists := colMap[fieldName]
@@ -705,24 +705,24 @@ func (g *Generator) validateFieldsInTable(tableName string, fieldNames []string,
 			g.log.WithFields(logrus.Fields{
 				"table": tableName,
 				"field": fieldName,
-			}).Warn("Field specified in uint64_to_string conversion config not found in table")
+			}).Warn("Field specified in bigint_to_string conversion config not found in table")
 			continue
 		}
 
-		if col.BaseType != typeUInt64 {
+		if col.BaseType != typeUInt64 && col.BaseType != typeInt64 {
 			g.log.WithFields(logrus.Fields{
 				"table":    tableName,
 				"field":    fieldName,
 				"type":     col.BaseType,
-				"expected": typeUInt64,
-			}).Warn("Field marked for uint64-to-string conversion is not UInt64 type")
+				"expected": "Int64 or UInt64",
+			}).Warn("Field marked for bigint-to-string conversion is not Int64/UInt64 type")
 		}
 	}
 }
 
 // validateCLIPatterns validates CLI-provided wildcard patterns
 func (g *Generator) validateCLIPatterns(convConfig *config.ConversionConfig, tableColumns map[string]map[string]*clickhouse.Column) {
-	for _, pattern := range convConfig.UInt64ToStringFields {
+	for _, pattern := range convConfig.BigIntToStringFields {
 		parts := strings.Split(pattern, ".")
 		if len(parts) != 2 {
 			continue
@@ -744,20 +744,20 @@ func (g *Generator) validatePattern(pattern, tablePattern, fieldPattern string, 
 
 		if col, exists := colMap[fieldPattern]; exists {
 			found = true
-			if col.BaseType != typeUInt64 {
+			if col.BaseType != typeUInt64 && col.BaseType != typeInt64 {
 				g.log.WithFields(logrus.Fields{
 					"table":    tableName,
 					"field":    fieldPattern,
 					"pattern":  pattern,
 					"type":     col.BaseType,
-					"expected": typeUInt64,
-				}).Warn("Field matching uint64-to-string pattern is not UInt64 type")
+					"expected": "Int64 or UInt64",
+				}).Warn("Field matching bigint-to-string pattern is not Int64/UInt64 type")
 			}
 		}
 	}
 
 	if !found && tablePattern != "*" {
-		g.log.WithField("pattern", pattern).Warn("Pattern specified in uint64-to-string conversion not found in any table")
+		g.log.WithField("pattern", pattern).Warn("Pattern specified in bigint-to-string conversion not found in any table")
 	}
 }
 
