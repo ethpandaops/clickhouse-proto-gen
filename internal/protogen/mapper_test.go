@@ -671,14 +671,64 @@ func TestTypeMapper_GetFilterTypeForColumn(t *testing.T) {
 			expected: "", // Float types don't have filter support in current implementation
 		},
 		{
-			name: "Array column (no filter type)",
+			name: "Array(String) column",
 			column: clickhouse.Column{
 				Name:     "tags",
 				Type:     "Array(String)",
 				BaseType: "String",
 				IsArray:  true,
 			},
-			expected: "",
+			expected: "ArrayStringFilter",
+		},
+		{
+			name: "Array(UInt32) column",
+			column: clickhouse.Column{
+				Name:     "slots",
+				Type:     "Array(UInt32)",
+				BaseType: "UInt32",
+				IsArray:  true,
+			},
+			expected: "ArrayUInt32Filter",
+		},
+		{
+			name: "Array(UInt64) column",
+			column: clickhouse.Column{
+				Name:     "column_indices",
+				Type:     "Array(UInt64)",
+				BaseType: "UInt64",
+				IsArray:  true,
+			},
+			expected: "ArrayUInt64Filter",
+		},
+		{
+			name: "Array(Int32) column",
+			column: clickhouse.Column{
+				Name:     "offsets",
+				Type:     "Array(Int32)",
+				BaseType: "Int32",
+				IsArray:  true,
+			},
+			expected: "ArrayInt32Filter",
+		},
+		{
+			name: "Array(Int64) column",
+			column: clickhouse.Column{
+				Name:     "timestamps",
+				Type:     "Array(Int64)",
+				BaseType: "Int64",
+				IsArray:  true,
+			},
+			expected: "ArrayInt64Filter",
+		},
+		{
+			name: "Array(Float64) column - unsupported",
+			column: clickhouse.Column{
+				Name:     "prices",
+				Type:     "Array(Float64)",
+				BaseType: "Float64",
+				IsArray:  true,
+			},
+			expected: "", // Float array not supported
 		},
 		{
 			name: "Map(String, String)",
@@ -1180,7 +1230,7 @@ func TestGetFilterTypeForColumn_BigIntToStringConversion(t *testing.T) {
 			desc:      "Non-converted Nullable(UInt64) uses NullableUInt64Filter",
 		},
 		{
-			name: "Array(UInt64) has no filter regardless of conversion",
+			name: "Array(UInt64) uses ArrayUInt64Filter regardless of conversion",
 			column: clickhouse.Column{
 				Name:     "values",
 				BaseType: "UInt64",
@@ -1193,8 +1243,8 @@ func TestGetFilterTypeForColumn_BigIntToStringConversion(t *testing.T) {
 					"fct_prepared_block": {"values"},
 				},
 			},
-			expected: "",
-			desc:     "Arrays don't have filters",
+			expected: "ArrayUInt64Filter",
+			desc:     "Arrays use Array*Filter types",
 		},
 	}
 
@@ -1202,6 +1252,115 @@ func TestGetFilterTypeForColumn_BigIntToStringConversion(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := tm.GetFilterTypeForColumn(&tt.column, tt.tableName, &tt.config)
 			assert.Equal(t, tt.expected, result, tt.desc)
+		})
+	}
+}
+
+// TestGetArrayFilterType tests that array columns return the correct filter types
+func TestGetArrayFilterType(t *testing.T) {
+	tm := NewTypeMapper()
+
+	tests := []struct {
+		name     string
+		column   clickhouse.Column
+		expected string
+	}{
+		{
+			name: "Array(UInt32)",
+			column: clickhouse.Column{
+				Name:     "slots",
+				Type:     "Array(UInt32)",
+				BaseType: "UInt32",
+				IsArray:  true,
+			},
+			expected: "ArrayUInt32Filter",
+		},
+		{
+			name: "Array(UInt64)",
+			column: clickhouse.Column{
+				Name:     "column_indices",
+				Type:     "Array(UInt64)",
+				BaseType: "UInt64",
+				IsArray:  true,
+			},
+			expected: "ArrayUInt64Filter",
+		},
+		{
+			name: "Array(Int32)",
+			column: clickhouse.Column{
+				Name:     "offsets",
+				Type:     "Array(Int32)",
+				BaseType: "Int32",
+				IsArray:  true,
+			},
+			expected: "ArrayInt32Filter",
+		},
+		{
+			name: "Array(Int64)",
+			column: clickhouse.Column{
+				Name:     "timestamps",
+				Type:     "Array(Int64)",
+				BaseType: "Int64",
+				IsArray:  true,
+			},
+			expected: "ArrayInt64Filter",
+		},
+		{
+			name: "Array(String)",
+			column: clickhouse.Column{
+				Name:     "tags",
+				Type:     "Array(String)",
+				BaseType: "String",
+				IsArray:  true,
+			},
+			expected: "ArrayStringFilter",
+		},
+		{
+			name: "Array(Float64) - unsupported",
+			column: clickhouse.Column{
+				Name:     "prices",
+				Type:     "Array(Float64)",
+				BaseType: "Float64",
+				IsArray:  true,
+			},
+			expected: "", // Float arrays not supported
+		},
+		{
+			name: "Array(Bool) - unsupported",
+			column: clickhouse.Column{
+				Name:     "flags",
+				Type:     "Array(Bool)",
+				BaseType: "Bool",
+				IsArray:  true,
+			},
+			expected: "", // Bool arrays not supported
+		},
+		{
+			name: "Array(UInt8) - maps to UInt32",
+			column: clickhouse.Column{
+				Name:     "bytes",
+				Type:     "Array(UInt8)",
+				BaseType: "UInt8",
+				IsArray:  true,
+			},
+			expected: "ArrayUInt32Filter", // UInt8 maps to uint32 in proto
+		},
+		{
+			name: "Array(Int8) - maps to Int32",
+			column: clickhouse.Column{
+				Name:     "small_ints",
+				Type:     "Array(Int8)",
+				BaseType: "Int8",
+				IsArray:  true,
+			},
+			expected: "ArrayInt32Filter", // Int8 maps to int32 in proto
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tm.getArrayFilterType(&tt.column)
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
