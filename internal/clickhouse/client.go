@@ -523,21 +523,28 @@ func (s *service) loadDistributedTableProjections(ctx context.Context, database,
 }
 
 // parseSortingKey parses the sorting key expression from ClickHouse
-// It handles expressions like "column1, column2" or "column1 ASC, column2 DESC"
+// It handles expressions like "column1, column2", "column1 ASC, column2 DESC",
+// and function expressions like "rank, ifNull(expiry_policy, ”)"
 func parseSortingKey(sortingKey string) []string {
 	if sortingKey == "" {
 		return nil
 	}
 
-	// Split by comma
-	parts := strings.Split(sortingKey, ",")
+	// Split by comma, but respect parentheses nesting
+	// (e.g., "rank, ifNull(expiry_policy, '')" should split into ["rank", "ifNull(expiry_policy, '')"])
+	parts := splitSortingKeyParts(sortingKey)
 	columns := make([]string, 0, len(parts))
 
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
-		// Remove ASC/DESC modifiers and any parentheses
+		// Remove ASC/DESC modifiers
 		part = strings.TrimSuffix(strings.TrimSuffix(part, " ASC"), " DESC")
-		part = strings.Trim(part, "()")
+
+		// Strip outer tuple parentheses (e.g., "(id)" -> "id") but NOT function calls.
+		// Tuple parens start with '(' immediately, function calls have a name before '('.
+		if len(part) >= 2 && part[0] == '(' && part[len(part)-1] == ')' {
+			part = part[1 : len(part)-1]
+		}
 
 		if part != "" {
 			columns = append(columns, part)
@@ -545,4 +552,33 @@ func parseSortingKey(sortingKey string) []string {
 	}
 
 	return columns
+}
+
+// splitSortingKeyParts splits a sorting key string by commas while respecting
+// parentheses nesting. Commas inside function calls are not treated as separators.
+func splitSortingKeyParts(s string) []string {
+	parts := make([]string, 0, 4)
+	depth := 0
+	start := 0
+
+	for i, ch := range s {
+		switch ch {
+		case '(':
+			depth++
+		case ')':
+			depth--
+		case ',':
+			if depth == 0 {
+				parts = append(parts, s[start:i])
+				start = i + 1
+			}
+		}
+	}
+
+	// Add the last part
+	if start < len(s) {
+		parts = append(parts, s[start:])
+	}
+
+	return parts
 }
