@@ -137,11 +137,87 @@ func TestParseSortingKey(t *testing.T) {
 			input:    "  id  ,   created_at   ,  name  ",
 			expected: []string{"id", "created_at", "name"},
 		},
+		{
+			name:     "Function expression with ifNull",
+			input:    "rank, ifNull(expiry_policy, '')",
+			expected: []string{"rank", "ifNull(expiry_policy, '')"},
+		},
+		{
+			name:     "Function expression with coalesce",
+			input:    "id, coalesce(name, 'unknown')",
+			expected: []string{"id", "coalesce(name, 'unknown')"},
+		},
+		{
+			name:     "Multiple function expressions",
+			input:    "rank, ifNull(policy, ''), coalesce(status, 'active')",
+			expected: []string{"rank", "ifNull(policy, '')", "coalesce(status, 'active')"},
+		},
+		{
+			name:     "Nested function expressions",
+			input:    "id, ifNull(coalesce(a, b), '')",
+			expected: []string{"id", "ifNull(coalesce(a, b), '')"},
+		},
+		{
+			name:     "Function with multiple args",
+			input:    "cityHash64(user_id, timestamp), created_at",
+			expected: []string{"cityHash64(user_id, timestamp)", "created_at"},
+		},
+		{
+			name:     "Mixed columns and functions with ASC/DESC",
+			input:    "rank ASC, ifNull(expiry_policy, '') DESC",
+			expected: []string{"rank", "ifNull(expiry_policy, '')"},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := parseSortingKey(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestSplitSortingKeyParts(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []string
+	}{
+		{
+			name:     "Simple columns",
+			input:    "a, b, c",
+			expected: []string{"a", " b", " c"},
+		},
+		{
+			name:     "Function with comma",
+			input:    "rank, ifNull(policy, '')",
+			expected: []string{"rank", " ifNull(policy, '')"},
+		},
+		{
+			name:     "Nested functions",
+			input:    "a, f(g(x, y), z)",
+			expected: []string{"a", " f(g(x, y), z)"},
+		},
+		{
+			name:     "Multiple nested parens",
+			input:    "mod(cityHash64(concat(a, b)), 10), x",
+			expected: []string{"mod(cityHash64(concat(a, b)), 10)", " x"},
+		},
+		{
+			name:     "Empty input",
+			input:    "",
+			expected: []string{},
+		},
+		{
+			name:     "Single column",
+			input:    "id",
+			expected: []string{"id"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := splitSortingKeyParts(tt.input)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
