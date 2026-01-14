@@ -684,9 +684,10 @@ func (g *Generator) writeFilterCases(sb *strings.Builder, columnName, filterType
 		return
 	}
 
-	// Handle numeric filters (Int32, Int64, UInt32, UInt64)
+	// Handle numeric filters (Int32, Int64, UInt32, UInt64, Float, Double)
 	if strings.Contains(filterType, "Int32") || strings.Contains(filterType, "Int64") ||
-		strings.Contains(filterType, "UInt32") || strings.Contains(filterType, typeUInt64) {
+		strings.Contains(filterType, "UInt32") || strings.Contains(filterType, typeUInt64) ||
+		strings.Contains(filterType, "Float") || strings.Contains(filterType, "Double") {
 		g.handleNumericFilter(sb, columnName, filterType, indent)
 	}
 }

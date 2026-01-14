@@ -520,6 +520,10 @@ func (tm *TypeMapper) getScalarFilterType(column *clickhouse.Column) string {
 		baseFilterType = "UInt32Filter"
 	case protoUInt64:
 		baseFilterType = "UInt64Filter"
+	case protoFloat:
+		baseFilterType = "FloatFilter"
+	case protoDouble:
+		baseFilterType = "DoubleFilter"
 	case protoString:
 		baseFilterType = "StringFilter"
 	case protoBool:

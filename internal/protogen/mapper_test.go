@@ -668,7 +668,7 @@ func TestTypeMapper_GetFilterTypeForColumn(t *testing.T) {
 				Type:     "Float64",
 				BaseType: "Float64",
 			},
-			expected: "", // Float types don't have filter support in current implementation
+			expected: "DoubleFilter",
 		},
 		{
 			name: "Array(String) column",
