@@ -1,9 +1,9 @@
-FROM golang:1.24 AS builder
+FROM golang:1.26 AS builder
 WORKDIR /src
 COPY go.sum go.mod ./
 RUN go mod download
 COPY . .
-RUN go build -o /bin/app .
+RUN go build -o /bin/app ./cmd/clickhouse-proto-gen
 
 FROM ubuntu:latest
 RUN apt-get update && apt-get -y upgrade && apt-get install -y --no-install-recommends \

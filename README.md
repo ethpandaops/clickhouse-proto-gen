@@ -137,13 +137,17 @@ See [config.example.yaml](config.example.yaml) for a complete example with all a
 | Flag | Description | Default |
 |------|-------------|---------|
 | `--dsn` | ClickHouse DSN | Required |
-| `--tables` | Comma-separated list of tables | Required |
+| `--tables` | Comma-separated list of tables | Required (unless `--all-tables`) |
+| `--all-tables` | Generate for all non-system tables in the database (ignores `--tables`) | false |
 | `--out` | Output directory | `./proto` |
 | `--package` | Proto package name | `clickhouse.v1` |
 | `--go-package` | Go package import path | - |
 | `--include-comments` | Include comments in proto | true |
 | `--max-page-size` | Maximum page size for List operations | 10000 |
 | `--bigint-to-string` | Convert Int64/UInt64 fields to string (see below) | - |
+| `--enable-api` | Emit `google.api.http` annotations for REST endpoints | false |
+| `--api-base-path` | Base path for API endpoints (requires `--enable-api`) | `/api/v1` |
+| `--api-table-prefixes` | Only expose tables matching these prefixes via REST (e.g. `fct_,dim_`) | - |
 | `--config` | Path to YAML config file | - |
 | `--verbose` | Enable verbose output | false |
 | `--debug` | Enable debug output | false |
@@ -156,23 +160,26 @@ See [config.example.yaml](config.example.yaml) for a complete example with all a
 |-----------------|------------|-------|
 | `Int8`, `Int16`, `Int32` | `int32` | |
 | `Int64` | `int64` | Can be converted to `string` (see BigInt Conversion below) |
-| `Int128`, `Int256` | `string` | No native support in protobuf |
+| `Int128`, `Int256`, `UInt128`, `UInt256` | `string` | No native support in protobuf |
 | `UInt8`, `UInt16`, `UInt32` | `uint32` | |
 | `UInt64` | `uint64` | Can be converted to `string` (see BigInt Conversion below) |
 | `Float32` | `float` | |
 | `Float64` | `double` | |
 | `Decimal*` | `string` | Preserves precision |
 | `String`, `FixedString` | `string` | |
-| `Date`, `DateTime` | `string` | ISO 8601 format |
+| `Date`, `Date32` | `string` | `YYYY-MM-DD` format |
+| `DateTime` | `uint32` | Unix timestamp (seconds) |
+| `DateTime64` | `int64` | Unix timestamp (microseconds) |
 | `Bool` | `bool` | |
 | `UUID` | `string` | |
 | `Array(T)` | `repeated T` | |
-| `Nullable(T)` | Uses nullable filter types | Special handling for filtering |
+| `Nullable(T)` | Google wrapper type | e.g. `Nullable(String)` -> `google.protobuf.StringValue` |
 | `LowCardinality(T)` | `T` | Unwraps to base type |
-| `Map` | `string` | JSON representation |
+| `Map(K, V)` | `map<K, V>` | Native proto map; falls back to `string` for unsupported key types |
 | `Tuple` | `string` | JSON representation |
 | `Enum8`, `Enum16` | `string` | Enum value as string |
 | `IPv4`, `IPv6` | `string` | IP address as string |
+| `JSON` | `string` | JSON representation |
 
 ### BigInt to String Conversion
 
@@ -240,6 +247,19 @@ clickhouse-proto-gen \
   --out ./proto
 ```
 
+### Example 3: Generate for every table in a database
+
+Omit `--tables` and pass `--all-tables` to discover and generate proto for all
+non-system tables (everything outside `system`, `information_schema`, and
+`INFORMATION_SCHEMA`):
+
+```bash
+clickhouse-proto-gen \
+  --dsn "clickhouse://localhost:9000/mydb" \
+  --all-tables \
+  --out ./proto
+```
+
 ### Example Output
 
 For a ClickHouse table:
@@ -263,17 +283,27 @@ syntax = "proto3";
 
 package myapp.v1;
 
+import "common.proto";
+import "google/protobuf/wrappers.proto";
+
 option go_package = "github.com/myorg/myapp/gen/v1";
 
 // User accounts table
 message Users {
   uint64 id = 11;
   string email = 12;
-  optional string name = 13;
-  string created_at = 14;
+  google.protobuf.StringValue name = 13;  // Nullable(String) -> wrapper type
+  uint32 created_at = 14;                  // DateTime -> Unix seconds
   repeated string tags = 15;
 }
 ```
+
+> Field numbers are derived from each column's ordinal position plus an offset of 10
+> (so the first column is `11`), leaving `1-10` reserved.
+>
+> Because this table has an `ORDER BY` key, a `UsersService` with `List` and `Get`
+> RPCs (and their request/response messages, with per-column filters) is also
+> generated — omitted here for brevity.
 
 ## Development
 

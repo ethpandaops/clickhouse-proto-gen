@@ -3,12 +3,17 @@
 # ClickHouse connection DSN
 dsn: clickhouse://user:password@localhost:9000/mydb
 
-# Tables to generate proto files for (required)
+# Tables to generate proto files for (required unless all_tables is true)
 # Can specify as table name or database.table
 tables:
   - users
   - orders
   - products
+
+# Generate proto for all non-system tables in the database.
+# When true, the explicit `tables` list above is ignored and every table
+# outside the system schemas is discovered automatically.
+all_tables: false
 
 # Output directory for generated proto files
 output_dir: ./proto

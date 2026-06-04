@@ -22,8 +22,41 @@ const (
 	protoBool   = "bool"
 	protoBytes  = "bytes"
 
+	protoSInt32   = "sint32"
+	protoSInt64   = "sint64"
+	protoFixed32  = "fixed32"
+	protoFixed64  = "fixed64"
+	protoSFixed32 = "sfixed32"
+	protoSFixed64 = "sfixed64"
+	protoMessage  = "message"
+	protoService  = "service"
+
+	protoRepeatedString = "repeated string"
+
 	// ClickHouse type names
 	chTypeString = "String"
+
+	// Google well-known wrapper types
+	wrapperString = "google.protobuf.StringValue"
+	wrapperBool   = "google.protobuf.BoolValue"
+	wrapperInt32  = "google.protobuf.Int32Value"
+	wrapperInt64  = "google.protobuf.Int64Value"
+	wrapperUInt32 = "google.protobuf.UInt32Value"
+	wrapperUInt64 = "google.protobuf.UInt64Value"
+	wrapperFloat  = "google.protobuf.FloatValue"
+	wrapperDouble = "google.protobuf.DoubleValue"
+	wrapperBytes  = "google.protobuf.BytesValue"
+
+	// Generated filter type names
+	filterString          = "StringFilter"
+	filterUInt64          = "UInt64Filter"
+	filterNullableString  = "NullableStringFilter"
+	filterMapStringString = "MapStringStringFilter"
+	filterArrayInt32      = "ArrayInt32Filter"
+	filterArrayInt64      = "ArrayInt64Filter"
+	filterArrayUInt32     = "ArrayUInt32Filter"
+	filterArrayUInt64     = "ArrayUInt64Filter"
+	filterArrayString     = "ArrayStringFilter"
 )
 
 // TypeMapper handles conversion of ClickHouse types to Protobuf types
@@ -42,11 +75,11 @@ func (tm *TypeMapper) MapType(column *clickhouse.Column, tableName string, convC
 	if (baseType == typeUInt64 || baseType == typeInt64) && convConfig.ShouldConvertToString(tableName, column.Name) {
 		// Handle Array(Int64/UInt64) → repeated string
 		if column.IsArray {
-			return "repeated string", nil
+			return protoRepeatedString, nil
 		}
 		// Handle Nullable(Int64/UInt64) → google.protobuf.StringValue
 		if column.IsNullable {
-			return "google.protobuf.StringValue", nil
+			return wrapperString, nil
 		}
 		// Regular Int64/UInt64 → string
 		return protoString, nil
@@ -79,7 +112,7 @@ func (tm *TypeMapper) MapType(column *clickhouse.Column, tableName string, convC
 
 func (tm *TypeMapper) mapBaseType(baseType, fullType string) string {
 	// Handle DateTime64 specially to check precision
-	if baseType == "DateTime64" {
+	if baseType == clickhouseDateTime64 {
 		// DateTime64 uses int64 because toUnixTimestamp64Micro() returns Int64
 		// The precision affects interpretation but not storage type
 		return protoInt64
@@ -107,37 +140,37 @@ func (tm *TypeMapper) mapBaseType(baseType, fullType string) string {
 func (tm *TypeMapper) mapNumericType(baseType string) string {
 	switch baseType {
 	// Integer types
-	case "Int8", "Int16", "Int32":
+	case typeInt8, typeInt16, typeInt32:
 		return protoInt32
-	case "Int64":
+	case typeInt64:
 		return protoInt64
-	case "Int128", "Int256":
+	case typeInt128, typeInt256:
 		return protoString // No native int128/256 in protobuf
 
 	// Unsigned integer types
-	case "UInt8", "UInt16", "UInt32":
+	case typeUInt8, typeUInt16, typeUInt32:
 		return protoUInt32
 	case typeUInt64:
 		return protoUInt64
-	case "UInt128", "UInt256":
+	case typeUInt128, typeUInt256:
 		return protoString // No native uint128/256 in protobuf
 
 	// Float types
-	case "Float32":
+	case typeFloat32:
 		return protoFloat
-	case "Float64":
+	case typeFloat64:
 		return protoDouble
 
 	// Decimal types
-	case "Decimal", "Decimal32", "Decimal64", "Decimal128", "Decimal256":
+	case clickhouseDecimal, clickhouseDecimal32, clickhouseDecimal64, clickhouseDecimal128, clickhouseDecimal256:
 		return protoString // Represent decimals as strings to preserve precision
 
 	// Boolean type
-	case "Bool":
+	case typeBool:
 		return protoBool
 
 	// DateTime type
-	case "DateTime":
+	case clickhouseDateTime:
 		return protoUInt32 // Unix timestamp in seconds
 	}
 
@@ -147,23 +180,23 @@ func (tm *TypeMapper) mapNumericType(baseType string) string {
 func (tm *TypeMapper) mapStringType(baseType string) string {
 	switch baseType {
 	// String types
-	case chTypeString, "FixedString":
+	case chTypeString, typeFixedString:
 		return protoString
 
 	// Date types (as strings for readability)
-	case "Date", "Date32":
+	case clickhouseDate, clickhouseDate32:
 		return protoString // YYYY-MM-DD format
 
 	// UUID type
-	case "UUID":
+	case typeUUID:
 		return protoString
 
 	// IP address types
-	case "IPv4", "IPv6":
+	case typeIPv4, typeIPv6:
 		return protoString
 
 	// JSON type
-	case "JSON":
+	case typeJSON:
 		return protoString
 
 	// Binary data
@@ -171,7 +204,7 @@ func (tm *TypeMapper) mapStringType(baseType string) string {
 		return protoBytes
 
 	// Enum types
-	case "Enum8", "Enum16":
+	case typeEnum8, typeEnum16:
 		return protoString // Would need special handling for enum definitions
 
 	// Geo types
@@ -193,7 +226,7 @@ func (tm *TypeMapper) mapSpecialType(baseType, fullType string) string {
 		return protoString
 
 	// Map type - use protobuf's native map syntax
-	case "Map":
+	case typeMap:
 		keyType, valueType := tm.parseMapType(fullType)
 		if keyType == "" || valueType == "" {
 			// Invalid map format, fallback to string
@@ -238,18 +271,18 @@ func (tm *TypeMapper) mapClickHouseTypeToProto(chType string) string {
 // fixed32, fixed64, sfixed32, sfixed64, bool, string
 func (tm *TypeMapper) isValidProtoMapKey(protoType string) bool {
 	validKeys := map[string]bool{
-		"int32":    true,
-		"int64":    true,
-		"uint32":   true,
-		"uint64":   true,
-		"sint32":   true,
-		"sint64":   true,
-		"fixed32":  true,
-		"fixed64":  true,
-		"sfixed32": true,
-		"sfixed64": true,
-		"bool":     true,
-		"string":   true,
+		protoInt32:    true,
+		protoInt64:    true,
+		protoUInt32:   true,
+		protoUInt64:   true,
+		protoSInt32:   true,
+		protoSInt64:   true,
+		protoFixed32:  true,
+		protoFixed64:  true,
+		protoSFixed32: true,
+		protoSFixed64: true,
+		protoBool:     true,
+		protoString:   true,
 	}
 
 	return validKeys[protoType]
@@ -270,23 +303,23 @@ func extractInnerType(wrappedType string) string {
 func (tm *TypeMapper) getWrapperType(protoType string) string {
 	switch protoType {
 	case protoString:
-		return "google.protobuf.StringValue"
+		return wrapperString
 	case protoBool:
-		return "google.protobuf.BoolValue"
+		return wrapperBool
 	case protoInt32:
-		return "google.protobuf.Int32Value"
+		return wrapperInt32
 	case protoInt64:
-		return "google.protobuf.Int64Value"
+		return wrapperInt64
 	case protoUInt32:
-		return "google.protobuf.UInt32Value"
+		return wrapperUInt32
 	case protoUInt64:
-		return "google.protobuf.UInt64Value"
+		return wrapperUInt64
 	case protoFloat:
-		return "google.protobuf.FloatValue"
+		return wrapperFloat
 	case protoDouble:
-		return "google.protobuf.DoubleValue"
+		return wrapperDouble
 	case protoBytes:
-		return "google.protobuf.BytesValue"
+		return wrapperBytes
 	default:
 		// For non-primitive types, return empty string
 		return ""
@@ -361,40 +394,40 @@ func SanitizeName(name string) string {
 
 func isReservedKeyword(word string) bool {
 	reserved := map[string]bool{
-		"syntax":     true,
-		"package":    true,
-		"import":     true,
-		"public":     true,
-		"option":     true,
-		"message":    true,
-		"enum":       true,
-		"service":    true,
-		"rpc":        true,
-		"returns":    true,
-		"stream":     true,
-		"repeated":   true,
-		"optional":   true,
-		"required":   true,
-		"reserved":   true,
-		"extensions": true,
-		"extend":     true,
-		"oneof":      true,
-		"map":        true,
-		"bool":       true,
-		"string":     true,
-		"bytes":      true,
-		"float":      true,
-		"double":     true,
-		"int32":      true,
-		"int64":      true,
-		"uint32":     true,
-		"uint64":     true,
-		"sint32":     true,
-		"sint64":     true,
-		"fixed32":    true,
-		"fixed64":    true,
-		"sfixed32":   true,
-		"sfixed64":   true,
+		"syntax":      true,
+		"package":     true,
+		"import":      true,
+		"public":      true,
+		"option":      true,
+		protoMessage:  true,
+		"enum":        true,
+		protoService:  true,
+		"rpc":         true,
+		"returns":     true,
+		"stream":      true,
+		"repeated":    true,
+		"optional":    true,
+		"required":    true,
+		"reserved":    true,
+		"extensions":  true,
+		"extend":      true,
+		"oneof":       true,
+		"map":         true,
+		protoBool:     true,
+		protoString:   true,
+		protoBytes:    true,
+		protoFloat:    true,
+		protoDouble:   true,
+		protoInt32:    true,
+		protoInt64:    true,
+		protoUInt32:   true,
+		protoUInt64:   true,
+		protoSInt32:   true,
+		protoSInt64:   true,
+		protoFixed32:  true,
+		protoFixed64:  true,
+		protoSFixed32: true,
+		protoSFixed64: true,
 	}
 
 	return reserved[strings.ToLower(word)]
@@ -486,17 +519,17 @@ func (tm *TypeMapper) getMapFilterType(columnType string) string {
 	}
 
 	// Currently supporting common combinations with String keys
-	if keyType == "String" {
+	if keyType == chTypeString {
 		switch valueType {
-		case "String":
-			return "MapStringStringFilter"
-		case "UInt32", "UInt8", "UInt16":
+		case chTypeString:
+			return filterMapStringString
+		case typeUInt32, typeUInt8, typeUInt16:
 			return "MapStringUInt32Filter"
 		case typeUInt64:
 			return "MapStringUInt64Filter"
-		case "Int32", "Int8", "Int16":
+		case typeInt32, typeInt8, typeInt16:
 			return "MapStringInt32Filter"
-		case "Int64":
+		case typeInt64:
 			return "MapStringInt64Filter"
 		}
 	}
@@ -519,9 +552,9 @@ func (tm *TypeMapper) getScalarFilterType(column *clickhouse.Column) string {
 	case protoUInt32:
 		baseFilterType = "UInt32Filter"
 	case protoUInt64:
-		baseFilterType = "UInt64Filter"
+		baseFilterType = filterUInt64
 	case protoString:
-		baseFilterType = "StringFilter"
+		baseFilterType = filterString
 	case protoBool:
 		baseFilterType = "BoolFilter"
 	default:
@@ -543,15 +576,15 @@ func (tm *TypeMapper) getArrayFilterType(column *clickhouse.Column) string {
 
 	switch protoType {
 	case protoInt32:
-		return "ArrayInt32Filter"
+		return filterArrayInt32
 	case protoInt64:
-		return "ArrayInt64Filter"
+		return filterArrayInt64
 	case protoUInt32:
-		return "ArrayUInt32Filter"
+		return filterArrayUInt32
 	case protoUInt64:
-		return "ArrayUInt64Filter"
+		return filterArrayUInt64
 	case protoString:
-		return "ArrayStringFilter"
+		return filterArrayString
 	default:
 		// Unsupported array element type
 		return ""
@@ -569,13 +602,13 @@ func (tm *TypeMapper) GetFilterTypeForColumn(column *clickhouse.Column, tableNam
 	if (column.BaseType == typeUInt64 || column.BaseType == typeInt64) && convConfig.ShouldConvertToString(tableName, column.Name) {
 		// Use StringFilter for converted Int64/UInt64 fields
 		if column.IsNullable {
-			return "NullableStringFilter"
+			return filterNullableString
 		}
-		return "StringFilter"
+		return filterString
 	}
 
 	// Check if it's a Map type
-	if column.BaseType == "Map" {
+	if column.BaseType == typeMap {
 		return tm.getMapFilterType(column.Type)
 	}
 

@@ -442,20 +442,20 @@ func TestCompleteQueryGeneration(t *testing.T) {
 
 type mockQueryBuilder struct {
 	whereClause string
-	args        []interface{}
+	args        []any
 }
 
 func (qb *mockQueryBuilder) GetWhereClause() string {
 	return qb.whereClause
 }
 
-func (qb *mockQueryBuilder) GetArgs() []interface{} {
+func (qb *mockQueryBuilder) GetArgs() []any {
 	return qb.args
 }
 
 type mockSQLQuery struct {
 	Query string
-	Args  []interface{}
+	Args  []any
 }
 
 type mockQueryOptions struct {

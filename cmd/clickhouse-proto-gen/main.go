@@ -33,6 +33,7 @@ var (
 var (
 	dsn                  string
 	tables               string
+	allTables            bool
 	outputDir            string
 	pkg                  string
 	goPackage            string
@@ -76,6 +77,7 @@ func init() {
 
 	// Table selection flags
 	rootCmd.Flags().StringVar(&tables, "tables", "", "Comma-separated list of tables to generate (e.g., users,orders or db.users,db.orders)")
+	rootCmd.Flags().BoolVar(&allTables, "all-tables", false, "Generate proto for all non-system tables in the database (ignores --tables)")
 
 	// Output configuration flags
 	rootCmd.Flags().StringVar(&outputDir, "out", "./proto", "Output directory for generated proto files")
@@ -117,7 +119,7 @@ func run(_ *cobra.Command, _ []string) error {
 	}
 
 	// Merge command-line flags (override config file values)
-	cfg.MergeFlags(dsn, outputDir, pkg, goPackage, tables, includeComments, maxPageSize, enableAPI, apiBasePath, apiTablePrefixes, bigIntToStringFields)
+	cfg.MergeFlags(dsn, outputDir, pkg, goPackage, tables, allTables, includeComments, maxPageSize, enableAPI, apiBasePath, apiTablePrefixes, bigIntToStringFields)
 
 	// Validate configuration
 	if err := cfg.Validate(); err != nil {
@@ -145,7 +147,10 @@ func run(_ *cobra.Command, _ []string) error {
 	}()
 
 	// Get tables to process
-	tablesToProcess := getTableList(ctx, ch, cfg, log)
+	tablesToProcess, err := getTableList(ctx, ch, cfg, log)
+	if err != nil {
+		return fmt.Errorf("failed to determine tables to process: %w", err)
+	}
 
 	if len(tablesToProcess) == 0 {
 		log.Warn("No tables found to process")
@@ -165,7 +170,7 @@ func run(_ *cobra.Command, _ []string) error {
 			tbl = parts[1]
 		} else {
 			// Extract database from DSN if not specified
-			db = extractDatabaseFromDSN(cfg.DSN)
+			db = clickhouse.DatabaseFromDSN(cfg.DSN)
 			tbl = tableName
 		}
 
@@ -218,28 +223,22 @@ func setupLogger() logrus.FieldLogger {
 	return log
 }
 
-func getTableList(_ context.Context, _ clickhouse.Service, cfg *config.Config, log logrus.FieldLogger) []string {
-	// Use specified tables
-	tablesToProcess := cfg.Tables
-	log.WithField("table_count", len(tablesToProcess)).Debug("Tables to process")
-	return tablesToProcess
-}
-
-func extractDatabaseFromDSN(dsn string) string {
-	// Basic extraction - finds the database name from DSN
-	// Format: clickhouse://user:pass@host:port/database
-
-	parts := strings.Split(dsn, "/")
-	if len(parts) > 0 {
-		dbPart := parts[len(parts)-1]
-		// Remove any query parameters
-		if idx := strings.Index(dbPart, "?"); idx > 0 {
-			dbPart = dbPart[:idx]
+func getTableList(ctx context.Context, ch clickhouse.Service, cfg *config.Config, log logrus.FieldLogger) ([]string, error) {
+	// Discover all non-system tables in the target database when --all-tables is set.
+	if cfg.AllTables {
+		database := clickhouse.DatabaseFromDSN(cfg.DSN)
+		tables, err := ch.ListTables(ctx, database)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list tables: %w", err)
 		}
-		if dbPart != "" {
-			return dbPart
-		}
+		log.WithFields(logrus.Fields{
+			"database":    database,
+			"table_count": len(tables),
+		}).Info("Discovered tables via --all-tables")
+		return tables, nil
 	}
 
-	return "default"
+	// Otherwise use the explicitly specified tables.
+	log.WithField("table_count", len(cfg.Tables)).Debug("Tables to process")
+	return cfg.Tables, nil
 }

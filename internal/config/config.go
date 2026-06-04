@@ -6,10 +6,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
+)
+
+// Default configuration values.
+const (
+	defaultOutputDir   = "./proto"
+	defaultAPIBasePath = "/api/v1"
 )
 
 // Define static errors for validation
@@ -24,6 +31,7 @@ var (
 type Config struct {
 	DSN             string   `yaml:"dsn"`
 	Tables          []string `yaml:"tables"`
+	AllTables       bool     `yaml:"all_tables"` // Generate for all non-system tables (ignores Tables)
 	OutputDir       string   `yaml:"output_dir"`
 	Package         string   `yaml:"package"`
 	GoPackage       string   `yaml:"go_package"`
@@ -53,11 +61,11 @@ type ConversionConfig struct {
 // NewConfig creates a new Config instance with default values.
 func NewConfig() *Config {
 	return &Config{
-		OutputDir:        "./proto",
+		OutputDir:        defaultOutputDir,
 		Package:          "clickhouse.v1",
 		IncludeComments:  true,
 		MaxPageSize:      10000,
-		APIBasePath:      "/api/v1",
+		APIBasePath:      defaultAPIBasePath,
 		EnableAPI:        false,
 		APITablePrefixes: []string{},
 	}
@@ -94,7 +102,8 @@ func (c *Config) Validate() error {
 		return ErrPackageRequired
 	}
 
-	if len(c.Tables) == 0 {
+	// Either an explicit table list or --all-tables discovery is required.
+	if len(c.Tables) == 0 && !c.AllTables {
 		return ErrTablesRequired
 	}
 
@@ -102,7 +111,7 @@ func (c *Config) Validate() error {
 }
 
 // MergeFlags merges command-line flags into the configuration.
-func (c *Config) MergeFlags(dsn, outputDir, pkg, goPkg, tables string, includeComments bool, maxPageSize int32, enableAPI bool, apiBasePath, apiTablePrefixes, bigIntToStringFields string) {
+func (c *Config) MergeFlags(dsn, outputDir, pkg, goPkg, tables string, allTables, includeComments bool, maxPageSize int32, enableAPI bool, apiBasePath, apiTablePrefixes, bigIntToStringFields string) {
 	if dsn != "" {
 		c.DSN = dsn
 	}
@@ -120,6 +129,9 @@ func (c *Config) MergeFlags(dsn, outputDir, pkg, goPkg, tables string, includeCo
 		for i := range c.Tables {
 			c.Tables[i] = strings.TrimSpace(c.Tables[i])
 		}
+	}
+	if allTables {
+		c.AllTables = true
 	}
 	c.IncludeComments = includeComments
 	if maxPageSize > 0 {
@@ -152,10 +164,8 @@ func (c *Config) MergeFlags(dsn, outputDir, pkg, goPkg, tables string, includeCo
 func (cc *ConversionConfig) ShouldConvertToString(tableName, fieldName string) bool {
 	// Check table-scoped configuration (bigint_to_string)
 	if fields, ok := cc.BigIntToString[tableName]; ok {
-		for _, f := range fields {
-			if f == fieldName {
-				return true
-			}
+		if slices.Contains(fields, fieldName) {
+			return true
 		}
 	}
 
