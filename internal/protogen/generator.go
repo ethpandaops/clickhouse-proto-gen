@@ -608,8 +608,8 @@ func (g *Generator) writeComment(sb *strings.Builder, comment, indent string) {
 	if !g.config.IncludeComments {
 		return
 	}
-	lines := strings.Split(comment, "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(comment, "\n")
+	for line := range lines {
 		line = strings.TrimSpace(line)
 		if line != "" {
 			fmt.Fprintf(sb, "%s// %s\n", indent, line)

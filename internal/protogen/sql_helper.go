@@ -4,6 +4,7 @@ package protogen
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -113,12 +114,7 @@ func getProtocMessageName(tableName string) string {
 // standard Go integer types and are mapped to string in protobuf.
 func needsStringConversion(col *clickhouse.Column) bool {
 	largeIntTypes := []string{"UInt128", "UInt256", "Int128", "Int256"}
-	for _, t := range largeIntTypes {
-		if col.BaseType == t {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(largeIntTypes, col.BaseType)
 }
 
 // hasNullableArrayElements checks if an array column has nullable elements.

@@ -383,22 +383,22 @@ func extractBaseType(clickhouseType string) string {
 		stripped := false
 
 		// Remove Nullable wrapper
-		if strings.HasPrefix(clickhouseType, "Nullable(") {
-			clickhouseType = strings.TrimPrefix(clickhouseType, "Nullable(")
+		if after, ok := strings.CutPrefix(clickhouseType, "Nullable("); ok {
+			clickhouseType = after
 			clickhouseType = strings.TrimSuffix(clickhouseType, ")")
 			stripped = true
 		}
 
 		// Remove Array wrapper
-		if strings.HasPrefix(clickhouseType, "Array(") {
-			clickhouseType = strings.TrimPrefix(clickhouseType, "Array(")
+		if after, ok := strings.CutPrefix(clickhouseType, "Array("); ok {
+			clickhouseType = after
 			clickhouseType = strings.TrimSuffix(clickhouseType, ")")
 			stripped = true
 		}
 
 		// Remove LowCardinality wrapper
-		if strings.HasPrefix(clickhouseType, "LowCardinality(") {
-			clickhouseType = strings.TrimPrefix(clickhouseType, "LowCardinality(")
+		if after, ok := strings.CutPrefix(clickhouseType, "LowCardinality("); ok {
+			clickhouseType = after
 			clickhouseType = strings.TrimSuffix(clickhouseType, ")")
 			stripped = true
 		}

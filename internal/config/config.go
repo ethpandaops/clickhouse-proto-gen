@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -152,10 +153,8 @@ func (c *Config) MergeFlags(dsn, outputDir, pkg, goPkg, tables string, includeCo
 func (cc *ConversionConfig) ShouldConvertToString(tableName, fieldName string) bool {
 	// Check table-scoped configuration (bigint_to_string)
 	if fields, ok := cc.BigIntToString[tableName]; ok {
-		for _, f := range fields {
-			if f == fieldName {
-				return true
-			}
+		if slices.Contains(fields, fieldName) {
+			return true
 		}
 	}
 
