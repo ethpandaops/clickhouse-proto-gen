@@ -13,6 +13,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Default configuration values.
+const (
+	defaultOutputDir   = "./proto"
+	defaultAPIBasePath = "/api/v1"
+)
+
 // Define static errors for validation
 var (
 	ErrDSNRequired       = errors.New("DSN is required")
@@ -54,11 +60,11 @@ type ConversionConfig struct {
 // NewConfig creates a new Config instance with default values.
 func NewConfig() *Config {
 	return &Config{
-		OutputDir:        "./proto",
+		OutputDir:        defaultOutputDir,
 		Package:          "clickhouse.v1",
 		IncludeComments:  true,
 		MaxPageSize:      10000,
-		APIBasePath:      "/api/v1",
+		APIBasePath:      defaultAPIBasePath,
 		EnableAPI:        false,
 		APITablePrefixes: []string{},
 	}

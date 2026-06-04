@@ -14,14 +14,35 @@ import (
 
 // ClickHouse type constants
 const (
-	typeInt8   = "Int8"
-	typeInt16  = "Int16"
-	typeInt32  = "Int32"
-	typeInt64  = "Int64"
-	typeUInt8  = "UInt8"
-	typeUInt16 = "UInt16"
-	typeUInt32 = "UInt32"
-	typeUInt64 = "UInt64"
+	typeInt8        = "Int8"
+	typeInt16       = "Int16"
+	typeInt32       = "Int32"
+	typeInt64       = "Int64"
+	typeInt128      = "Int128"
+	typeInt256      = "Int256"
+	typeUInt8       = "UInt8"
+	typeUInt16      = "UInt16"
+	typeUInt32      = "UInt32"
+	typeUInt64      = "UInt64"
+	typeUInt128     = "UInt128"
+	typeUInt256     = "UInt256"
+	typeFloat32     = "Float32"
+	typeFloat64     = "Float64"
+	typeBool        = "Bool"
+	typeFixedString = "FixedString"
+	typeUUID        = "UUID"
+	typeIPv4        = "IPv4"
+	typeIPv6        = "IPv6"
+	typeJSON        = "JSON"
+	typeEnum8       = "Enum8"
+	typeEnum16      = "Enum16"
+	typeMap         = "Map"
+)
+
+// Log field keys.
+const (
+	logFieldTable = "table"
+	logFieldField = "field"
 )
 
 // Generator creates protobuf files from ClickHouse tables
@@ -87,8 +108,8 @@ func (g *Generator) Generate(tables []*clickhouse.Table) error {
 	for _, table := range tables {
 		if err := g.generateTableFile(table); err != nil {
 			g.log.WithError(err).WithFields(logrus.Fields{
-				"database": table.Database,
-				"table":    table.Name,
+				"database":    table.Database,
+				logFieldTable: table.Name,
 			}).Error("Failed to generate proto file")
 			return err
 		}
@@ -630,15 +651,15 @@ func (g *Generator) writeFile(filename, content string) error {
 func getProtoType(baseType string) string {
 	switch baseType {
 	case typeInt8, typeInt16, typeInt32:
-		return "int32"
+		return protoInt32
 	case typeInt64:
-		return "int64"
+		return protoInt64
 	case typeUInt8, typeUInt16, typeUInt32:
-		return "uint32"
+		return protoUInt32
 	case typeUInt64:
-		return "uint64"
+		return protoUInt64
 	default:
-		return "string"
+		return protoString
 	}
 }
 
@@ -689,7 +710,7 @@ func (g *Generator) validateTableScopedConversions(convConfig *config.Conversion
 	for tableName, fieldNames := range convConfig.BigIntToString {
 		colMap, tableExists := tableColumns[tableName]
 		if !tableExists {
-			g.log.WithField("table", tableName).Warn("Table specified in bigint_to_string conversion config not found in tables being generated")
+			g.log.WithField(logFieldTable, tableName).Warn("Table specified in bigint_to_string conversion config not found in tables being generated")
 			continue
 		}
 
@@ -703,18 +724,18 @@ func (g *Generator) validateFieldsInTable(tableName string, fieldNames []string,
 		col, exists := colMap[fieldName]
 		if !exists {
 			g.log.WithFields(logrus.Fields{
-				"table": tableName,
-				"field": fieldName,
+				logFieldTable: tableName,
+				logFieldField: fieldName,
 			}).Warn("Field specified in bigint_to_string conversion config not found in table")
 			continue
 		}
 
 		if col.BaseType != typeUInt64 && col.BaseType != typeInt64 {
 			g.log.WithFields(logrus.Fields{
-				"table":    tableName,
-				"field":    fieldName,
-				"type":     col.BaseType,
-				"expected": "Int64 or UInt64",
+				logFieldTable: tableName,
+				logFieldField: fieldName,
+				"type":        col.BaseType,
+				"expected":    "Int64 or UInt64",
 			}).Warn("Field marked for bigint-to-string conversion is not Int64/UInt64 type")
 		}
 	}
@@ -746,11 +767,11 @@ func (g *Generator) validatePattern(pattern, tablePattern, fieldPattern string, 
 			found = true
 			if col.BaseType != typeUInt64 && col.BaseType != typeInt64 {
 				g.log.WithFields(logrus.Fields{
-					"table":    tableName,
-					"field":    fieldPattern,
-					"pattern":  pattern,
-					"type":     col.BaseType,
-					"expected": "Int64 or UInt64",
+					logFieldTable: tableName,
+					logFieldField: fieldPattern,
+					"pattern":     pattern,
+					"type":        col.BaseType,
+					"expected":    "Int64 or UInt64",
 				}).Warn("Field matching bigint-to-string pattern is not Int64/UInt64 type")
 			}
 		}

@@ -165,7 +165,7 @@ func run(_ *cobra.Command, _ []string) error {
 			tbl = parts[1]
 		} else {
 			// Extract database from DSN if not specified
-			db = extractDatabaseFromDSN(cfg.DSN)
+			db = clickhouse.DatabaseFromDSN(cfg.DSN)
 			tbl = tableName
 		}
 
@@ -223,23 +223,4 @@ func getTableList(_ context.Context, _ clickhouse.Service, cfg *config.Config, l
 	tablesToProcess := cfg.Tables
 	log.WithField("table_count", len(tablesToProcess)).Debug("Tables to process")
 	return tablesToProcess
-}
-
-func extractDatabaseFromDSN(dsn string) string {
-	// Basic extraction - finds the database name from DSN
-	// Format: clickhouse://user:pass@host:port/database
-
-	parts := strings.Split(dsn, "/")
-	if len(parts) > 0 {
-		dbPart := parts[len(parts)-1]
-		// Remove any query parameters
-		if idx := strings.Index(dbPart, "?"); idx > 0 {
-			dbPart = dbPart[:idx]
-		}
-		if dbPart != "" {
-			return dbPart
-		}
-	}
-
-	return "default"
 }

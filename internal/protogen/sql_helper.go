@@ -113,7 +113,7 @@ func getProtocMessageName(tableName string) string {
 // Large integer types (UInt128, UInt256, Int128, Int256) are too large for
 // standard Go integer types and are mapped to string in protobuf.
 func needsStringConversion(col *clickhouse.Column) bool {
-	largeIntTypes := []string{"UInt128", "UInt256", "Int128", "Int256"}
+	largeIntTypes := []string{typeUInt128, typeUInt256, typeInt128, typeInt256}
 	return slices.Contains(largeIntTypes, col.BaseType)
 }
 
@@ -130,10 +130,10 @@ func hasNullableArrayElements(col *clickhouse.Column) bool {
 func getDefaultValueForType(baseType string) string {
 	// For numeric types, default to 0
 	numericTypes := []string{
-		"UInt8", "UInt16", "UInt32", typeUInt64, "UInt128", "UInt256",
-		"Int8", "Int16", "Int32", "Int64", "Int128", "Int256",
-		"Float32", "Float64",
-		"Decimal", "Decimal32", "Decimal64", "Decimal128", "Decimal256",
+		typeUInt8, typeUInt16, typeUInt32, typeUInt64, typeUInt128, typeUInt256,
+		typeInt8, typeInt16, typeInt32, typeInt64, typeInt128, typeInt256,
+		typeFloat32, typeFloat64,
+		clickhouseDecimal, clickhouseDecimal32, clickhouseDecimal64, clickhouseDecimal128, clickhouseDecimal256,
 	}
 	for _, t := range numericTypes {
 		if strings.HasPrefix(baseType, t) {
@@ -142,12 +142,12 @@ func getDefaultValueForType(baseType string) string {
 	}
 
 	// For DateTime types, default to 0 (Unix epoch)
-	if strings.HasPrefix(baseType, "DateTime") {
+	if strings.HasPrefix(baseType, clickhouseDateTime) {
 		return "0"
 	}
 
 	// For Date types, default to epoch date
-	if baseType == "Date" || baseType == "Date32" {
+	if baseType == clickhouseDate || baseType == clickhouseDate32 {
 		return "'1970-01-01'"
 	}
 
@@ -184,7 +184,7 @@ func getSelectColumnExpression(col *clickhouse.Column, tableName string, convCon
 	// Handle FixedString types - convert zero-byte strings to NULL
 	// This prevents confusing zero-byte string output in API responses
 	// Check BaseType first (handles Nullable(FixedString(N))), then parse full Type for length
-	if col.BaseType == "FixedString" {
+	if col.BaseType == typeFixedString {
 		if isFixed, length := IsFixedString(col.Type); isFixed {
 			return fmt.Sprintf("NULLIF(`%s`, repeat('\\x00', %d)) AS `%s`", col.Name, length, col.Name)
 		}
@@ -633,7 +633,7 @@ func (g *Generator) handleNumericFilter(sb *strings.Builder, columnName, filterT
 
 // handleMapFilter handles Map filter types
 func (g *Generator) handleMapFilter(sb *strings.Builder, columnName, filterType, indent string) {
-	if filterType == "MapStringStringFilter" {
+	if filterType == filterMapStringString {
 		g.writeMapStringStringFilterCases(sb, columnName, indent)
 		return
 	}

@@ -12,6 +12,15 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// Log field keys.
+const (
+	logFieldDatabase = "database"
+	logFieldTable    = "table"
+
+	// engineDistributed is the ClickHouse engine name for distributed tables.
+	engineDistributed = "Distributed"
+)
+
 // Service defines the interface for ClickHouse operations
 type Service interface {
 	Connect(ctx context.Context) error
@@ -52,8 +61,8 @@ func (s *service) Connect(ctx context.Context) error {
 
 	s.conn = conn
 	s.log.WithFields(logrus.Fields{
-		"database": options.Auth.Database,
-		"address":  options.Addr,
+		logFieldDatabase: options.Auth.Database,
+		"address":        options.Addr,
 	}).Info("Connected to ClickHouse")
 
 	return nil
@@ -105,8 +114,9 @@ func (s *service) GetTable(ctx context.Context, database, tableName string) (*Ta
 		Projections: []Projection{},
 	}
 
-	// Get table metadata
-	if err := s.loadTableMetadata(ctx, database, tableName, table); err != nil {
+	// Get table metadata. The engine info is reused below for distributed tables.
+	engine, engineFull, err := s.loadTableMetadata(ctx, database, tableName, table)
+	if err != nil {
 		s.log.WithError(err).Warn("Failed to get table metadata")
 	}
 
@@ -126,28 +136,33 @@ func (s *service) GetTable(ctx context.Context, database, tableName string) (*Ta
 		table.Projections = projections
 	}
 
-	// For distributed tables, also get projections from the underlying local table
-	s.loadDistributedTableProjections(ctx, database, tableName, table)
+	// For distributed tables, also get projections from the underlying local table.
+	// Reuse the engine info already fetched above instead of re-querying system.tables.
+	if engine == engineDistributed {
+		s.loadDistributedTableProjections(ctx, engineFull, table)
+	}
 
 	s.log.WithFields(logrus.Fields{
-		"database": database,
-		"table":    tableName,
-		"columns":  len(table.Columns),
+		logFieldDatabase: database,
+		logFieldTable:    tableName,
+		"columns":        len(table.Columns),
 	}).Debug("Retrieved table schema")
 
 	return table, nil
 }
 
-// loadTableMetadata loads table metadata including comment and sorting key
-func (s *service) loadTableMetadata(ctx context.Context, database, tableName string, table *Table) error {
+// loadTableMetadata loads table metadata including comment and sorting key.
+// It returns the table's engine and engine_full definitions so callers can reuse
+// them (e.g. for distributed tables) without re-querying system.tables.
+func (s *service) loadTableMetadata(ctx context.Context, database, tableName string, table *Table) (engine, engineFull string, err error) {
 	metaQuery := `
 		SELECT comment, sorting_key, engine, engine_full
 		FROM system.tables
 		WHERE database = ? AND name = ?
 	`
-	var comment, sortingKey, engine, engineFull sql.NullString
-	if err := s.conn.QueryRow(ctx, metaQuery, database, tableName).Scan(&comment, &sortingKey, &engine, &engineFull); err != nil {
-		return err
+	var comment, sortingKey, engineNull, engineFullNull sql.NullString
+	if err := s.conn.QueryRow(ctx, metaQuery, database, tableName).Scan(&comment, &sortingKey, &engineNull, &engineFullNull); err != nil {
+		return "", "", err
 	}
 
 	if comment.Valid {
@@ -155,8 +170,8 @@ func (s *service) loadTableMetadata(ctx context.Context, database, tableName str
 	}
 
 	// Load sorting key
-	s.loadSortingKey(ctx, table, sortingKey, engine, engineFull)
-	return nil
+	s.loadSortingKey(ctx, table, sortingKey, engineNull, engineFullNull)
+	return engineNull.String, engineFullNull.String, nil
 }
 
 // loadSortingKey loads the sorting key for a table
@@ -168,7 +183,7 @@ func (s *service) loadSortingKey(ctx context.Context, table *Table, sortingKey, 
 	}
 
 	// For distributed tables, get sorting key from underlying table
-	if !engine.Valid || engine.String != "Distributed" {
+	if !engine.Valid || engine.String != engineDistributed {
 		return
 	}
 
@@ -282,8 +297,8 @@ func (s *service) GetTables(ctx context.Context, database string, tableNames []s
 		table, err := s.GetTable(ctx, db, tbl)
 		if err != nil {
 			s.log.WithError(err).WithFields(logrus.Fields{
-				"database": db,
-				"table":    tbl,
+				logFieldDatabase: db,
+				logFieldTable:    tbl,
 			}).Warn("Failed to get table, skipping")
 			continue
 		}
@@ -374,6 +389,17 @@ func splitDistributedArgs(args string) []string {
 	}
 
 	return result
+}
+
+// DatabaseFromDSN extracts the database name from a ClickHouse DSN.
+// It returns "default" when the DSN omits the database or cannot be parsed.
+func DatabaseFromDSN(dsn string) string {
+	options, err := clickhouse.ParseDSN(dsn)
+	if err != nil || options.Auth.Database == "" {
+		return "default"
+	}
+
+	return options.Auth.Database
 }
 
 func extractBaseType(clickhouseType string) string {
@@ -467,44 +493,11 @@ func (s *service) loadTableProjections(ctx context.Context, database, tableName 
 	return projections, nil
 }
 
-// isDistributedTable checks if a table is a distributed table
-func (s *service) isDistributedTable(ctx context.Context, database, tableName string) bool {
-	query := `
-		SELECT engine
-		FROM system.tables
-		WHERE database = ? AND name = ?
-	`
-	var engine sql.NullString
-	if err := s.conn.QueryRow(ctx, query, database, tableName).Scan(&engine); err != nil {
-		return false
-	}
-	return engine.Valid && engine.String == "Distributed"
-}
-
-// getUnderlyingTableName gets the underlying table info for a distributed table
-func (s *service) getUnderlyingTableName(ctx context.Context, database, tableName string) *underlyingTableInfo {
-	query := `
-		SELECT engine_full
-		FROM system.tables
-		WHERE database = ? AND name = ?
-	`
-	var engineFull sql.NullString
-	if err := s.conn.QueryRow(ctx, query, database, tableName).Scan(&engineFull); err != nil {
-		return nil
-	}
-	if !engineFull.Valid {
-		return nil
-	}
-	return s.extractUnderlyingTable(engineFull.String)
-}
-
-// loadDistributedTableProjections loads projections from underlying local table for distributed tables
-func (s *service) loadDistributedTableProjections(ctx context.Context, database, tableName string, table *Table) {
-	if !s.isDistributedTable(ctx, database, tableName) {
-		return
-	}
-
-	underlyingTable := s.getUnderlyingTableName(ctx, database, tableName)
+// loadDistributedTableProjections loads projections from the underlying local table
+// for a distributed table. The engineFull definition is supplied by the caller (from
+// loadTableMetadata) to avoid re-querying system.tables.
+func (s *service) loadDistributedTableProjections(ctx context.Context, engineFull string, table *Table) {
+	underlyingTable := s.extractUnderlyingTable(engineFull)
 	if underlyingTable == nil {
 		return
 	}
@@ -512,8 +505,8 @@ func (s *service) loadDistributedTableProjections(ctx context.Context, database,
 	localProjections, err := s.loadTableProjections(ctx, underlyingTable.Database, underlyingTable.Table)
 	if err != nil {
 		s.log.WithError(err).WithFields(logrus.Fields{
-			"database": underlyingTable.Database,
-			"table":    underlyingTable.Table,
+			logFieldDatabase: underlyingTable.Database,
+			logFieldTable:    underlyingTable.Table,
 		}).Debug("Failed to get projections from underlying local table")
 		return
 	}
