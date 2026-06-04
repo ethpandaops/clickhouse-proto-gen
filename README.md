@@ -137,7 +137,8 @@ See [config.example.yaml](config.example.yaml) for a complete example with all a
 | Flag | Description | Default |
 |------|-------------|---------|
 | `--dsn` | ClickHouse DSN | Required |
-| `--tables` | Comma-separated list of tables | Required |
+| `--tables` | Comma-separated list of tables | Required (unless `--all-tables`) |
+| `--all-tables` | Generate for all non-system tables in the database (ignores `--tables`) | false |
 | `--out` | Output directory | `./proto` |
 | `--package` | Proto package name | `clickhouse.v1` |
 | `--go-package` | Go package import path | - |
@@ -243,6 +244,19 @@ This generates:
 clickhouse-proto-gen \
   --dsn "clickhouse://localhost:9000" \
   --tables "db1.users,db2.products,db3.orders" \
+  --out ./proto
+```
+
+### Example 3: Generate for every table in a database
+
+Omit `--tables` and pass `--all-tables` to discover and generate proto for all
+non-system tables (everything outside `system`, `information_schema`, and
+`INFORMATION_SCHEMA`):
+
+```bash
+clickhouse-proto-gen \
+  --dsn "clickhouse://localhost:9000/mydb" \
+  --all-tables \
   --out ./proto
 ```
 

@@ -94,6 +94,17 @@ func TestConfig_Validate(t *testing.T) {
 			expectErr: ErrTablesRequired,
 		},
 		{
+			name: "AllTables satisfies table requirement",
+			config: Config{
+				DSN:       "clickhouse://localhost:9000/test",
+				OutputDir: "./proto",
+				Package:   "test.v1",
+				Tables:    nil,
+				AllTables: true,
+			},
+			wantErr: false,
+		},
+		{
 			name: "Complete configuration with GoPackage",
 			config: Config{
 				DSN:             "clickhouse://localhost:9000/test",
@@ -259,6 +270,7 @@ func TestConfig_MergeFlags(t *testing.T) {
 		pkg              string
 		goPkg            string
 		tables           string
+		allTables        bool
 		includeComments  bool
 		enableAPI        bool
 		apiBasePath      string
@@ -385,6 +397,28 @@ func TestConfig_MergeFlags(t *testing.T) {
 			expected: Config{
 				Tables:          []string{"db1.users", "db2.orders", "db3.products"},
 				IncludeComments: false,
+			},
+		},
+		{
+			name: "All-tables flag sets AllTables",
+			initial: Config{
+				DSN:       "clickhouse://localhost:9000/test",
+				OutputDir: "./proto",
+			},
+			dsn:              "",
+			outputDir:        "",
+			pkg:              "",
+			goPkg:            "",
+			tables:           "",
+			allTables:        true,
+			includeComments:  false,
+			enableAPI:        false,
+			apiBasePath:      "",
+			apiTablePrefixes: "",
+			expected: Config{
+				DSN:       "clickhouse://localhost:9000/test",
+				OutputDir: "./proto",
+				AllTables: true,
 			},
 		},
 		{
@@ -540,7 +574,7 @@ func TestConfig_MergeFlags(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := tt.initial
-			cfg.MergeFlags(tt.dsn, tt.outputDir, tt.pkg, tt.goPkg, tt.tables, tt.includeComments, 0, tt.enableAPI, tt.apiBasePath, tt.apiTablePrefixes, "")
+			cfg.MergeFlags(tt.dsn, tt.outputDir, tt.pkg, tt.goPkg, tt.tables, tt.allTables, tt.includeComments, 0, tt.enableAPI, tt.apiBasePath, tt.apiTablePrefixes, "")
 			assert.Equal(t, tt.expected, cfg)
 		})
 	}

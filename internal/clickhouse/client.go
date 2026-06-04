@@ -25,9 +25,8 @@ const (
 type Service interface {
 	Connect(ctx context.Context) error
 	Close() error
-	ListTables(ctx context.Context) ([]string, error)
+	ListTables(ctx context.Context, database string) ([]string, error)
 	GetTable(ctx context.Context, database, tableName string) (*Table, error)
-	GetTables(ctx context.Context, database string, tableNames []string) ([]*Table, error)
 }
 
 type service struct {
@@ -75,15 +74,23 @@ func (s *service) Close() error {
 	return nil
 }
 
-func (s *service) ListTables(ctx context.Context) ([]string, error) {
+func (s *service) ListTables(ctx context.Context, database string) ([]string, error) {
 	query := `
 		SELECT database || '.' || name AS full_name
 		FROM system.tables
 		WHERE database NOT IN ('system', 'information_schema', 'INFORMATION_SCHEMA')
-		ORDER BY database, name
 	`
 
-	rows, err := s.conn.Query(ctx, query)
+	// Scope to a single database when one is supplied so callers don't
+	// accidentally generate proto for every database in the instance.
+	args := make([]any, 0, 1)
+	if database != "" {
+		query += " AND database = ?"
+		args = append(args, database)
+	}
+	query += " ORDER BY database, name"
+
+	rows, err := s.conn.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query tables: %w", err)
 	}
@@ -278,35 +285,6 @@ func (s *service) loadTableColumns(ctx context.Context, database, tableName stri
 	}
 
 	return columns, nil
-}
-
-func (s *service) GetTables(ctx context.Context, database string, tableNames []string) ([]*Table, error) {
-	tables := make([]*Table, 0, len(tableNames))
-
-	for _, tableName := range tableNames {
-		// Parse database.table format if present
-		parts := strings.Split(tableName, ".")
-		db := database
-		tbl := tableName
-
-		if len(parts) == 2 {
-			db = parts[0]
-			tbl = parts[1]
-		}
-
-		table, err := s.GetTable(ctx, db, tbl)
-		if err != nil {
-			s.log.WithError(err).WithFields(logrus.Fields{
-				logFieldDatabase: db,
-				logFieldTable:    tbl,
-			}).Warn("Failed to get table, skipping")
-			continue
-		}
-
-		tables = append(tables, table)
-	}
-
-	return tables, nil
 }
 
 // underlyingTableInfo holds information about an underlying table for distributed tables
