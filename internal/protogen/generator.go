@@ -120,6 +120,11 @@ func (g *Generator) Generate(tables []*clickhouse.Table) error {
 		return fmt.Errorf("failed to generate SQL helpers: %w", err)
 	}
 
+	// Generate scannable row struct files
+	if err := g.GenerateRowHelpers(tables); err != nil {
+		return fmt.Errorf("failed to generate row helpers: %w", err)
+	}
+
 	return nil
 }
 
