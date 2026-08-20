@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"strings"
 
 	"github.com/ethpandaops/clickhouse-proto-gen/internal/clickhouse"
@@ -204,6 +205,45 @@ func run(_ *cobra.Command, _ []string) error {
 	return nil
 }
 
+// filterExcludedTables drops discovered tables whose bare name matches any of
+// the configured glob patterns (e.g. "*_local" to skip shard-local tables that
+// back Distributed wrappers).
+func filterExcludedTables(tables, patterns []string, log logrus.FieldLogger) []string {
+	if len(patterns) == 0 {
+		return tables
+	}
+
+	kept := make([]string, 0, len(tables))
+
+	for _, fullName := range tables {
+		name := fullName
+		if idx := strings.LastIndex(fullName, "."); idx >= 0 {
+			name = fullName[idx+1:]
+		}
+
+		excluded := false
+
+		for _, pattern := range patterns {
+			matched, err := path.Match(pattern, name)
+			if err != nil {
+				log.WithError(err).WithField("pattern", pattern).Warn("Invalid exclude_tables pattern")
+				continue
+			}
+
+			if matched {
+				excluded = true
+				break
+			}
+		}
+
+		if !excluded {
+			kept = append(kept, fullName)
+		}
+	}
+
+	return kept
+}
+
 func setupLogger() logrus.FieldLogger {
 	log := logrus.New()
 	log.SetFormatter(&logrus.TextFormatter{
@@ -231,6 +271,9 @@ func getTableList(ctx context.Context, ch clickhouse.Service, cfg *config.Config
 		if err != nil {
 			return nil, fmt.Errorf("failed to list tables: %w", err)
 		}
+
+		tables = filterExcludedTables(tables, cfg.ExcludeTables, log)
+
 		log.WithFields(logrus.Fields{
 			"database":    database,
 			"table_count": len(tables),
