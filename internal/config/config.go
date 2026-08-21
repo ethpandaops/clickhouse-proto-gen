@@ -32,6 +32,7 @@ type Config struct {
 	DSN             string   `yaml:"dsn"`
 	Tables          []string `yaml:"tables"`
 	AllTables       bool     `yaml:"all_tables"` // Generate for all non-system tables (ignores Tables)
+	ExcludeTables   []string `yaml:"exclude_tables"` // Glob patterns of table names to skip during --all-tables discovery
 	OutputDir       string   `yaml:"output_dir"`
 	Package         string   `yaml:"package"`
 	GoPackage       string   `yaml:"go_package"`

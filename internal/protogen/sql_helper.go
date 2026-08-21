@@ -56,14 +56,7 @@ func (g *Generator) generateSQLHelper(table *clickhouse.Table) error {
 	fmt.Fprintf(sb, "// SQL query builder for %s\n\n", table.Name)
 	sb.WriteString("package ")
 
-	// Extract package name from go_package
-	pkgName := "main"
-	if g.config.GoPackage != "" {
-		parts := strings.Split(g.config.GoPackage, "/")
-		pkgName = parts[len(parts)-1]
-		pkgName = strings.ReplaceAll(pkgName, "-", "_")
-	}
-	sb.WriteString(pkgName)
+	sb.WriteString(g.goPackageName())
 	sb.WriteString("\n\n")
 
 	// Write imports

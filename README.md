@@ -10,6 +10,26 @@ A standalone CLI tool that connects to a ClickHouse cluster, introspects one or 
 - 🎯 **Selective generation**: Generate proto for specific tables or all tables in a database
 - ⚙️ **Configurable**: Supports both CLI flags and YAML configuration files
 - 📦 **Organized Output**: Generates separate proto files for each table for better organization
+- 🧱 **Scannable row structs**: Generates `<table>.row.go` with plain Go structs (`ch:` tags) that scan directly from the built queries via clickhouse-go's `ScanStruct`, plus `ToProto()` converters
+
+### Generated Go helpers
+
+For every table with a sorting key the tool emits, next to the `.proto` file:
+
+- `<table>.go` — `BuildList<Table>Query` / `BuildGet<Table>Query` SQL builders returning a parameterized `SQLQuery`
+- `<table>.row.go` — `<Table>Row`, a ClickHouse-scannable struct whose field types match the SELECT expressions of the built queries (DateTime → unix seconds, DateTime64 → unix microseconds, Date/decimals/large ints → strings, Nullable → pointers). Scan with `rows.ScanStruct(&row)` and convert with `row.ToProto()`.
+
+Consumers get a compile-time-safe path from ClickHouse to typed Go with no hand-written SQL:
+
+```go
+q, _ := clickhouse.BuildListDimNodeQuery(req)
+rows, _ := conn.Query(ctx, q.Query, q.Args...)
+for rows.Next() {
+    var row clickhouse.DimNodeRow
+    _ = rows.ScanStruct(&row)
+    node := row.ToProto()
+}
+```
 
 ## Installation
 
