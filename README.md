@@ -162,6 +162,7 @@ See [config.example.yaml](config.example.yaml) for a complete example with all a
 | `--out` | Output directory | `./proto` |
 | `--package` | Proto package name | `clickhouse.v1` |
 | `--go-package` | Go package import path | - |
+| `--namespaced-descriptors` | Derive `common.proto`/`clickhouse/annotations.proto` names and the annotations proto package from `--package`, so two generated packages can link into one Go binary without descriptor registry collisions | false |
 | `--include-comments` | Include comments in proto | true |
 | `--max-page-size` | Maximum page size for List operations | 10000 |
 | `--bigint-to-string` | Convert Int64/UInt64 fields to string (see below) | - |
