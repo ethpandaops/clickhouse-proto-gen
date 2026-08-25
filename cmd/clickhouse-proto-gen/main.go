@@ -32,21 +32,22 @@ var (
 //
 //nolint:gochecknoglobals
 var (
-	dsn                  string
-	tables               string
-	allTables            bool
-	outputDir            string
-	pkg                  string
-	goPackage            string
-	includeComments      bool
-	configFile           string
-	verbose              bool
-	debug                bool
-	maxPageSize          int32
-	enableAPI            bool
-	apiBasePath          string
-	apiTablePrefixes     string
-	bigIntToStringFields string
+	dsn                   string
+	tables                string
+	allTables             bool
+	outputDir             string
+	pkg                   string
+	goPackage             string
+	namespacedDescriptors bool
+	includeComments       bool
+	configFile            string
+	verbose               bool
+	debug                 bool
+	maxPageSize           int32
+	enableAPI             bool
+	apiBasePath           string
+	apiTablePrefixes      string
+	bigIntToStringFields  string
 )
 
 func main() {
@@ -84,6 +85,7 @@ func init() {
 	rootCmd.Flags().StringVar(&outputDir, "out", "./proto", "Output directory for generated proto files")
 	rootCmd.Flags().StringVar(&pkg, "package", "clickhouse.v1", "Protocol Buffer package name")
 	rootCmd.Flags().StringVar(&goPackage, "go-package", "", "Go package path (e.g., github.com/acme/project/gen/clickhousev1)")
+	rootCmd.Flags().BoolVar(&namespacedDescriptors, "namespaced-descriptors", false, "Namespace the shared descriptor files and the annotations proto package by --package, so multiple generated packages can link into one binary")
 	rootCmd.Flags().BoolVar(&includeComments, "include-comments", true, "Include table and column comments in proto files")
 
 	// Config file flag
@@ -120,7 +122,7 @@ func run(_ *cobra.Command, _ []string) error {
 	}
 
 	// Merge command-line flags (override config file values)
-	cfg.MergeFlags(dsn, outputDir, pkg, goPackage, tables, allTables, includeComments, maxPageSize, enableAPI, apiBasePath, apiTablePrefixes, bigIntToStringFields)
+	cfg.MergeFlags(dsn, outputDir, pkg, goPackage, tables, allTables, includeComments, maxPageSize, enableAPI, apiBasePath, apiTablePrefixes, bigIntToStringFields, namespacedDescriptors)
 
 	// Validate configuration
 	if err := cfg.Validate(); err != nil {

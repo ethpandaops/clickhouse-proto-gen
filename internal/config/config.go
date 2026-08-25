@@ -29,15 +29,19 @@ var (
 
 // Config holds the configuration for the ClickHouse proto generator.
 type Config struct {
-	DSN             string   `yaml:"dsn"`
-	Tables          []string `yaml:"tables"`
-	AllTables       bool     `yaml:"all_tables"` // Generate for all non-system tables (ignores Tables)
-	ExcludeTables   []string `yaml:"exclude_tables"` // Glob patterns of table names to skip during --all-tables discovery
-	OutputDir       string   `yaml:"output_dir"`
-	Package         string   `yaml:"package"`
-	GoPackage       string   `yaml:"go_package"`
-	IncludeComments bool     `yaml:"include_comments"`
-	MaxPageSize     int32    `yaml:"max_page_size"`
+	DSN           string   `yaml:"dsn"`
+	Tables        []string `yaml:"tables"`
+	AllTables     bool     `yaml:"all_tables"`     // Generate for all non-system tables (ignores Tables)
+	ExcludeTables []string `yaml:"exclude_tables"` // Glob patterns of table names to skip during --all-tables discovery
+	OutputDir     string   `yaml:"output_dir"`
+	Package       string   `yaml:"package"`
+	GoPackage     string   `yaml:"go_package"`
+	// NamespacedDescriptors derives the shared descriptor file names and the
+	// annotations proto package from Package, so two generated packages can
+	// link into one binary without colliding in the protobuf file registry.
+	NamespacedDescriptors bool  `yaml:"namespaced_descriptors"`
+	IncludeComments       bool  `yaml:"include_comments"`
+	MaxPageSize           int32 `yaml:"max_page_size"`
 	// API generation options
 	APIBasePath      string   `yaml:"api_base_path"`      // e.g., "/api/v1"
 	EnableAPI        bool     `yaml:"enable_api"`         // Enable HTTP annotations
@@ -112,7 +116,7 @@ func (c *Config) Validate() error {
 }
 
 // MergeFlags merges command-line flags into the configuration.
-func (c *Config) MergeFlags(dsn, outputDir, pkg, goPkg, tables string, allTables, includeComments bool, maxPageSize int32, enableAPI bool, apiBasePath, apiTablePrefixes, bigIntToStringFields string) {
+func (c *Config) MergeFlags(dsn, outputDir, pkg, goPkg, tables string, allTables, includeComments bool, maxPageSize int32, enableAPI bool, apiBasePath, apiTablePrefixes, bigIntToStringFields string, namespacedDescriptors bool) {
 	if dsn != "" {
 		c.DSN = dsn
 	}
@@ -133,6 +137,10 @@ func (c *Config) MergeFlags(dsn, outputDir, pkg, goPkg, tables string, allTables
 	}
 	if allTables {
 		c.AllTables = true
+	}
+
+	if namespacedDescriptors {
+		c.NamespacedDescriptors = true
 	}
 	c.IncludeComments = includeComments
 	if maxPageSize > 0 {
@@ -220,4 +228,40 @@ func matchesTwoPartPattern(tablePattern, fieldPattern, tableName, fieldName stri
 	}
 
 	return false
+}
+
+// packageSlug is the proto package as a file name token.
+func (c *Config) packageSlug() string {
+	return strings.ReplaceAll(c.Package, ".", "_")
+}
+
+// CommonProtoFile is the proto file holding the shared filter and pagination
+// types, as generated files import it.
+func (c *Config) CommonProtoFile() string {
+	if !c.NamespacedDescriptors {
+		return "common.proto"
+	}
+
+	return c.packageSlug() + "_common.proto"
+}
+
+// AnnotationsProtoFile is the proto file holding the custom field options, as
+// generated files import it.
+func (c *Config) AnnotationsProtoFile() string {
+	if !c.NamespacedDescriptors {
+		return "clickhouse/annotations.proto"
+	}
+
+	return "clickhouse/" + c.packageSlug() + "_annotations.proto"
+}
+
+// AnnotationsPackage is the proto package of the custom field options. The
+// namespaced form prefixes the configured package so the extension full names
+// stay unique per generated package.
+func (c *Config) AnnotationsPackage() string {
+	if !c.NamespacedDescriptors {
+		return "clickhouse.v1"
+	}
+
+	return c.Package + ".clickhouse.v1"
 }

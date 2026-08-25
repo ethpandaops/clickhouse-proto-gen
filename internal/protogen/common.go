@@ -9,7 +9,7 @@ import (
 
 // GenerateCommonProto generates the common.proto file with shared types
 func (g *Generator) GenerateCommonProto() error {
-	filename := filepath.Join(g.config.OutputDir, "common.proto")
+	filename := filepath.Join(g.config.OutputDir, g.config.CommonProtoFile())
 
 	var sb strings.Builder
 
@@ -473,16 +473,18 @@ func (g *Generator) GenerateAnnotationsProto() error {
 		return fmt.Errorf("failed to create clickhouse directory: %w", err)
 	}
 
-	filename := filepath.Join(clickhouseDir, "annotations.proto")
+	filename := filepath.Join(g.config.OutputDir, filepath.FromSlash(g.config.AnnotationsProtoFile()))
 
 	var sb strings.Builder
 
 	// Write header
 	sb.WriteString("syntax = \"proto3\";\n\n")
 
-	// Annotations always use a fixed package name, not the user's configured package
-	// This allows generated files to reference extensions as (clickhouse.v1.projection_name)
-	sb.WriteString("package clickhouse.v1;\n")
+	// Generated files reference these extensions as
+	// (<annotations package>.projection_name); the namespaced form keeps the
+	// extension full names unique when several generated packages share a
+	// binary.
+	fmt.Fprintf(&sb, "package %s;\n", g.config.AnnotationsPackage())
 
 	sb.WriteString("\nimport \"google/protobuf/descriptor.proto\";\n")
 
