@@ -446,6 +446,48 @@ func TestMultiplePrimaryKeysNilChecks(t *testing.T) {
 	}
 }
 
+// Generated filters reference request fields by the names protoc-gen-go gives them.
+func TestFilterFieldNamesMatchProtocGenGo(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
+
+	table := &clickhouse.Table{
+		Name:     "attester_slashing",
+		Database: "default",
+		Columns: []clickhouse.Column{
+			{Name: "slot_start_date_time", Type: "DateTime", BaseType: "DateTime"},
+			{Name: "attestation_1_data_slot", Type: "UInt32", BaseType: "UInt32"},
+			{Name: "data4bytes", Type: "String", BaseType: "String"},
+		},
+		SortingKey: []string{"slot_start_date_time", "attestation_1_data_slot"},
+	}
+
+	cfg := &config.Config{
+		GoPackage: "github.com/test/pkg",
+		Package:   "test.v1",
+		OutputDir: t.TempDir(),
+	}
+
+	columnMap := make(map[string]*clickhouse.Column)
+	for i := range table.Columns {
+		columnMap[table.Columns[i].Name] = &table.Columns[i]
+	}
+
+	var sb strings.Builder
+
+	NewGenerator(cfg, logger).writeAllFilterConditions(&sb, table, columnMap)
+
+	code := sb.String()
+
+	for _, want := range []string{"req.Attestation_1DataSlot", "req.Data4Bytes"} {
+		assert.Contains(t, code, want)
+	}
+
+	for _, notWant := range []string{"req.Attestation1DataSlot", "req.Data4bytes"} {
+		assert.NotContains(t, code, notWant)
+	}
+}
+
 // Helper function to read file content
 func readFile(path string) (string, error) {
 	data, err := os.ReadFile(path)
