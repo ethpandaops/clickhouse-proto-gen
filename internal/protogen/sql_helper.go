@@ -416,7 +416,7 @@ func (g *Generator) writePrimaryKeyValidation(sb *strings.Builder, table *clickh
 	conditions := make([]string, 0, len(keyNames))
 	for _, key := range keyNames {
 		fieldName := SanitizeName(key)
-		conditions = append(conditions, fmt.Sprintf("req.%s == nil", ToPascalCase(fieldName)))
+		conditions = append(conditions, fmt.Sprintf("req.%s == nil", goCamelCase(fieldName)))
 	}
 
 	if len(conditions) == 1 {
@@ -488,9 +488,9 @@ func (g *Generator) writeGetSQLBuilderFunction(sb *strings.Builder, table *click
 	// Validate primary key is provided based on type
 	fmt.Fprintf(sb, "\t// Validate primary key is provided\n")
 	if primaryKeyType == stringType {
-		fmt.Fprintf(sb, "\tif req.%s == \"\" {\n", ToPascalCase(primaryKeyField))
+		fmt.Fprintf(sb, "\tif req.%s == \"\" {\n", goCamelCase(primaryKeyField))
 	} else {
-		fmt.Fprintf(sb, "\tif req.%s == 0 {\n", ToPascalCase(primaryKeyField))
+		fmt.Fprintf(sb, "\tif req.%s == 0 {\n", goCamelCase(primaryKeyField))
 	}
 	fmt.Fprintf(sb, "\t\treturn SQLQuery{}, fmt.Errorf(\"primary key field %s is required\")\n", primaryKey)
 	fmt.Fprintf(sb, "\t}\n\n")
@@ -498,7 +498,7 @@ func (g *Generator) writeGetSQLBuilderFunction(sb *strings.Builder, table *click
 	// Build simple query with primary key
 	fmt.Fprintf(sb, "\t// Build query with primary key condition\n")
 	fmt.Fprintf(sb, "\tqb := NewQueryBuilder()\n")
-	fmt.Fprintf(sb, "\tqb.AddCondition(\"%s\", \"=\", req.%s)\n\n", primaryKey, ToPascalCase(primaryKeyField))
+	fmt.Fprintf(sb, "\tqb.AddCondition(\"%s\", \"=\", req.%s)\n\n", primaryKey, goCamelCase(primaryKeyField))
 
 	// Build ORDER BY clause
 	fmt.Fprintf(sb, "\t// Build ORDER BY clause\n")
@@ -573,7 +573,7 @@ func (g *Generator) writeAllFilterConditions(sb *strings.Builder, table *clickho
 
 // writeFilterCondition generates code to convert a filter to QueryBuilder conditions
 func (g *Generator) writeFilterCondition(sb *strings.Builder, table *clickhouse.Table, columnName, fieldName string, column *clickhouse.Column, isPrimary bool) {
-	pascalFieldName := ToPascalCase(fieldName)
+	pascalFieldName := goCamelCase(fieldName)
 	filterType := g.typeMapper.GetFilterTypeForColumn(column, table.Name, &g.config.Conversion)
 
 	if filterType == "" {
