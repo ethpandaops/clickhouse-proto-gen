@@ -216,7 +216,7 @@ func (g *Generator) writeTableHeader(sb *strings.Builder, needsWrapper, hasServi
 
 	// Add imports
 	if hasService {
-		sb.WriteString("\nimport \"common.proto\";\n")
+		fmt.Fprintf(sb, "\nimport %q;\n", g.config.CommonProtoFile())
 	}
 	if needsWrapper {
 		sb.WriteString("import \"google/protobuf/wrappers.proto\";\n")
@@ -227,7 +227,7 @@ func (g *Generator) writeTableHeader(sb *strings.Builder, needsWrapper, hasServi
 		sb.WriteString("import \"google/api/annotations.proto\";\n")
 		sb.WriteString("import \"google/api/field_behavior.proto\";\n")
 		// Always import annotations for uniform required_group handling
-		sb.WriteString("import \"clickhouse/annotations.proto\";\n")
+		fmt.Fprintf(sb, "import %q;\n", g.config.AnnotationsProtoFile())
 	}
 
 	if g.config.GoPackage != "" {
@@ -450,11 +450,11 @@ func (g *Generator) writePrimaryKeyField(sb *strings.Builder, sortCol string, co
 			// Always include required_group annotation for uniform handling
 			// Mark as OPTIONAL when projections exist, REQUIRED otherwise
 			if len(projectionAlternatives) > 0 {
-				fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = OPTIONAL, (clickhouse.v1.required_group) = \"primary_key\"];\n",
-					filterType, SanitizeName(sortCol), fieldNumber)
+				fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = OPTIONAL, (%s.required_group) = \"primary_key\"];\n",
+					filterType, SanitizeName(sortCol), fieldNumber, g.config.AnnotationsPackage())
 			} else {
-				fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = REQUIRED, (clickhouse.v1.required_group) = \"primary_key\"];\n",
-					filterType, SanitizeName(sortCol), fieldNumber)
+				fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = REQUIRED, (%s.required_group) = \"primary_key\"];\n",
+					filterType, SanitizeName(sortCol), fieldNumber, g.config.AnnotationsPackage())
 			}
 		} else {
 			fmt.Fprintf(sb, "  %s %s = %d;\n", filterType, SanitizeName(sortCol), fieldNumber)
@@ -468,11 +468,11 @@ func (g *Generator) writePrimaryKeyField(sb *strings.Builder, sortCol string, co
 		if g.shouldGenerateAPI(table.Name) {
 			// Always include required_group annotation for uniform handling
 			if len(projectionAlternatives) > 0 {
-				fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = OPTIONAL, (clickhouse.v1.required_group) = \"primary_key\"];\n",
-					protoType, SanitizeName(sortCol), fieldNumber)
+				fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = OPTIONAL, (%s.required_group) = \"primary_key\"];\n",
+					protoType, SanitizeName(sortCol), fieldNumber, g.config.AnnotationsPackage())
 			} else {
-				fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = REQUIRED, (clickhouse.v1.required_group) = \"primary_key\"];\n",
-					protoType, SanitizeName(sortCol), fieldNumber)
+				fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = REQUIRED, (%s.required_group) = \"primary_key\"];\n",
+					protoType, SanitizeName(sortCol), fieldNumber, g.config.AnnotationsPackage())
 			}
 		} else {
 			fmt.Fprintf(sb, "  %s %s = %d;\n", protoType, SanitizeName(sortCol), fieldNumber)
@@ -574,8 +574,8 @@ func (g *Generator) writeRemainingColumnFilters(sb *strings.Builder, table *clic
 			if g.shouldGenerateAPI(table.Name) {
 				// Add projection annotations if this is a projection key
 				if projectionInfo != nil {
-					fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = OPTIONAL, (clickhouse.v1.projection_name) = \"%s\", (clickhouse.v1.projection_alternative_for) = \"%s\", (clickhouse.v1.required_group) = \"primary_key\"];\n",
-						filterType, SanitizeName(column.Name), fieldNumber, projectionInfo.Name, basePrimaryKey)
+					fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = OPTIONAL, (%[4]s.projection_name) = \"%[5]s\", (%[4]s.projection_alternative_for) = \"%[6]s\", (%[4]s.required_group) = \"primary_key\"];\n",
+						filterType, SanitizeName(column.Name), fieldNumber, g.config.AnnotationsPackage(), projectionInfo.Name, basePrimaryKey)
 				} else {
 					fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = OPTIONAL];\n", filterType, SanitizeName(column.Name), fieldNumber)
 				}
@@ -593,8 +593,8 @@ func (g *Generator) writeRemainingColumnFilters(sb *strings.Builder, table *clic
 				if strings.HasPrefix(wrapperType, "repeated ") {
 					fmt.Fprintf(sb, "  %s %s = %d;\n", wrapperType, SanitizeName(column.Name), fieldNumber)
 				} else if projectionInfo != nil {
-					fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = OPTIONAL, (clickhouse.v1.projection_name) = \"%s\", (clickhouse.v1.projection_alternative_for) = \"%s\", (clickhouse.v1.required_group) = \"primary_key\"];\n",
-						wrapperType, SanitizeName(column.Name), fieldNumber, projectionInfo.Name, basePrimaryKey)
+					fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = OPTIONAL, (%[4]s.projection_name) = \"%[5]s\", (%[4]s.projection_alternative_for) = \"%[6]s\", (%[4]s.required_group) = \"primary_key\"];\n",
+						wrapperType, SanitizeName(column.Name), fieldNumber, g.config.AnnotationsPackage(), projectionInfo.Name, basePrimaryKey)
 				} else {
 					fmt.Fprintf(sb, "  %s %s = %d [(google.api.field_behavior) = OPTIONAL];\n", wrapperType, SanitizeName(column.Name), fieldNumber)
 				}

@@ -615,3 +615,46 @@ func TestGeneratedSQLCommonContainsVariableSubstitution(t *testing.T) {
 	// Verify that functions use configurable formatVariable instead of hardcoded placeholders
 	assert.NotContains(t, contentStr, "fmt.Sprintf(\"$%d\", qb.argCounter)", "Functions should use formatVariable() for configurable placeholders")
 }
+
+// Two generated packages linked into one binary must not register the same
+// descriptor file path or extension full name, or protobuf panics at init.
+// The namespaced form derives unique names from the proto package.
+func TestGenerator_NamespacedDescriptors(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "namespaced_descriptors_test_*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	cfg := &config.Config{
+		OutputDir:             tempDir,
+		Package:               "cbt",
+		GoPackage:             "github.com/test/proto",
+		NamespacedDescriptors: true,
+	}
+
+	require.Equal(t, "cbt_common.proto", cfg.CommonProtoFile())
+	require.Equal(t, "clickhouse/cbt_annotations.proto", cfg.AnnotationsProtoFile())
+	require.Equal(t, "cbt.clickhouse.v1", cfg.AnnotationsPackage())
+
+	log := logrus.New()
+	log.SetLevel(logrus.WarnLevel)
+	gen := NewGenerator(cfg, log)
+
+	require.NoError(t, gen.GenerateCommonProto())
+	require.FileExists(t, filepath.Join(tempDir, "cbt_common.proto"))
+
+	require.NoError(t, gen.GenerateAnnotationsProto())
+	annotationsPath := filepath.Join(tempDir, "clickhouse", "cbt_annotations.proto")
+	require.FileExists(t, annotationsPath)
+
+	content, err := os.ReadFile(annotationsPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(content), "package cbt.clickhouse.v1;")
+
+	// a dotted package still yields a valid file name token
+	dotted := &config.Config{Package: "clickhouse.v1"}
+	require.Equal(t, "common.proto", dotted.CommonProtoFile())
+	dotted.NamespacedDescriptors = true
+	require.Equal(t, "clickhouse_v1_common.proto", dotted.CommonProtoFile())
+	require.Equal(t, "clickhouse/clickhouse_v1_annotations.proto", dotted.AnnotationsProtoFile())
+	require.Equal(t, "clickhouse.v1.clickhouse.v1", dotted.AnnotationsPackage())
+}

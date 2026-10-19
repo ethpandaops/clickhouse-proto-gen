@@ -574,7 +574,7 @@ func TestConfig_MergeFlags(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := tt.initial
-			cfg.MergeFlags(tt.dsn, tt.outputDir, tt.pkg, tt.goPkg, tt.tables, tt.allTables, tt.includeComments, 0, tt.enableAPI, tt.apiBasePath, tt.apiTablePrefixes, "")
+			cfg.MergeFlags(tt.dsn, tt.outputDir, tt.pkg, tt.goPkg, tt.tables, tt.allTables, tt.includeComments, 0, tt.enableAPI, tt.apiBasePath, tt.apiTablePrefixes, "", false)
 			assert.Equal(t, tt.expected, cfg)
 		})
 	}
