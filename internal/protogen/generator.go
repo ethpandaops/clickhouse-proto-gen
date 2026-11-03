@@ -238,12 +238,12 @@ func (g *Generator) writeTableHeader(sb *strings.Builder, needsWrapper, hasServi
 func (g *Generator) writeMessage(sb *strings.Builder, table *clickhouse.Table) {
 	messageName := ToPascalCase(table.Name)
 
-	// Write message comment if available
-	if g.config.IncludeComments && table.Comment != "" {
-		g.writeComment(sb, table.Comment, "")
-	}
+	// Write the table comment directly above the message: protoc only attaches a comment to the
+	// message when no blank line separates them.
+	sb.WriteString("\n")
+	g.writeComment(sb, table.Comment, "")
 
-	fmt.Fprintf(sb, "\nmessage %s {\n", messageName)
+	fmt.Fprintf(sb, "message %s {\n", messageName)
 
 	// Process columns
 	for _, column := range table.Columns {
@@ -376,7 +376,7 @@ func (g *Generator) writeServiceDefinitions(sb *strings.Builder, table *clickhou
 	// Check if this table should have HTTP annotations
 	if g.shouldGenerateAPI(table.Name) {
 		// Generate List RPC WITH HTTP annotations
-		fmt.Fprintf(sb, "  // List records | Retrieve paginated results with optional filtering\n")
+		g.writeListComment(sb, table)
 		fmt.Fprintf(sb, "  rpc List(List%sRequest) returns (List%sResponse) {\n",
 			messageName, messageName)
 		fmt.Fprintf(sb, "    option (google.api.http) = {\n")
@@ -397,7 +397,7 @@ func (g *Generator) writeServiceDefinitions(sb *strings.Builder, table *clickhou
 		fmt.Fprintf(sb, "  }\n")
 	} else {
 		// Generate List RPC WITHOUT HTTP annotations (basic gRPC only)
-		fmt.Fprintf(sb, "  // List records | Retrieve paginated results with optional filtering\n")
+		g.writeListComment(sb, table)
 		fmt.Fprintf(sb, "  rpc List(List%sRequest) returns (List%sResponse);\n",
 			messageName, messageName)
 		fmt.Fprintf(sb, "  // Get record | Retrieve a single record by primary key\n")
@@ -406,6 +406,23 @@ func (g *Generator) writeServiceDefinitions(sb *strings.Builder, table *clickhou
 	}
 
 	sb.WriteString("}\n")
+}
+
+// writeListComment writes the List RPC comment as "summary | description". The description is
+// the table comment when there is one, so generated API docs describe what the table holds.
+func (g *Generator) writeListComment(sb *strings.Builder, table *clickhouse.Table) {
+	description := "Retrieve paginated results with optional filtering"
+	if g.config.IncludeComments && strings.TrimSpace(table.Comment) != "" {
+		description = table.Comment
+	}
+
+	lines := strings.Split(strings.TrimSpace(description), "\n")
+	lines[0] = "List records | " + lines[0]
+	for _, line := range lines {
+		if line = strings.TrimSpace(line); line != "" {
+			fmt.Fprintf(sb, "  // %s\n", line)
+		}
+	}
 }
 
 // writePrimaryKeyField writes the primary key field for service request
