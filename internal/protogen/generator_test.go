@@ -103,6 +103,11 @@ func TestGenerator_Generate(t *testing.T) {
 	assert.Contains(t, contentStr, "service UsersService")
 	assert.Contains(t, contentStr, "message ListUsersRequest")
 	assert.Contains(t, contentStr, "message ListUsersResponse")
+
+	// The table comment must sit directly above the message (protoc drops it as the message's
+	// description when a blank line separates them) and becomes the List RPC description.
+	assert.Contains(t, contentStr, "\n// User accounts table\nmessage Users {\n")
+	assert.Contains(t, contentStr, "  // List records | User accounts table\n  rpc List(")
 }
 
 func TestGenerator_CheckNeedsWrapper(t *testing.T) {
@@ -814,8 +819,8 @@ func TestGenerator_GenerateProtoWithAPIAnnotations(t *testing.T) {
 	assert.Contains(t, fctContentStr, "option (google.api.http) = {")
 	assert.Contains(t, fctContentStr, "get: \"/api/v1/fct_block\"")
 
-	// Verify pipe-separated comment format for service
-	assert.Contains(t, fctContentStr, " | Retrieve paginated results with optional filtering")
+	// Verify pipe-separated comment format for service, with the table comment as the List description
+	assert.Contains(t, fctContentStr, "// List records | Block data from the beacon chain\n")
 
 	// Verify field_behavior annotations (primary key now includes required_group)
 	assert.Contains(t, fctContentStr, "(google.api.field_behavior) = REQUIRED")
